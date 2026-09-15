@@ -215,9 +215,8 @@
       } catch (e) {}
     }
 
-    // Map Layers
-    const TILE_DARK = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-    const TILE_STREET = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+    // Official OpenStreetMap tiles (100% Free, Zero API Keys, No Watermarks)
+    const TILE_OSM = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 
     function initMap(initialLat, initialLng) {
       if (map) return;
@@ -227,9 +226,12 @@
         attributionControl: false
       }).setView([initialLat || 20, initialLng || 0], initialLat ? 16 : 3);
 
-      currentTileLayer = L.tileLayer(TILE_DARK, {
+      // Start with dark theme class on map
+      $('leaflet-map').classList.add('dark-tiles');
+
+      currentTileLayer = L.tileLayer(TILE_OSM, {
         maxZoom: 19,
-        subdomains: 'abcd'
+        subdomains: 'abc'
       }).addTo(map);
 
       // Route trajectory polyline
@@ -260,15 +262,17 @@
       }
     }
 
-    // Toggle Map Style (Dark / Street)
+    // Toggle Map Style (Dark Obsidian / Standard Street)
     $("btn-map-layer").onclick = () => {
       if (!map) return;
       isDarkTheme = !isDarkTheme;
-      map.removeLayer(currentTileLayer);
-      currentTileLayer = L.tileLayer(isDarkTheme ? TILE_DARK : TILE_STREET, {
-        maxZoom: 19,
-        subdomains: isDarkTheme ? 'abcd' : 'abc'
-      }).addTo(map);
+      if (isDarkTheme) {
+        $('leaflet-map').classList.add('dark-tiles');
+        $("btn-map-layer").textContent = "🗺️ Street View";
+      } else {
+        $('leaflet-map').classList.remove('dark-tiles');
+        $("btn-map-layer").textContent = "🌙 Dark View";
+      }
     };
 
     // Recenter

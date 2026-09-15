@@ -194,17 +194,19 @@
       $("diag-battery").textContent = "Sensor Standard";
     }
 
-    // Initialize Preview Map
+    // Initialize Preview Map (Zero API keys, zero watermarks)
     function initPreview(lat, lng, acc) {
       if (!previewMap) {
+        $('leaflet-preview-map').classList.add('dark-tiles');
+
         previewMap = L.map('leaflet-preview-map', {
           zoomControl: false,
           attributionControl: false
         }).setView([lat, lng], 16);
 
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           maxZoom: 19,
-          subdomains: 'abcd'
+          subdomains: 'abc'
         }).addTo(previewMap);
 
         const customIcon = L.divIcon({

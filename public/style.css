@@ -26,6 +26,11 @@
   --shadow-elevation: 0 20px 40px -10px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--border-subtle);
 }
 
+/* Zero API-Key High-Tech Dark Mode Map Filter */
+.dark-tiles .leaflet-tile-pane {
+  filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.2) brightness(0.75);
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
