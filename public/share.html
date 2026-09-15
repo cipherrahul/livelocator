@@ -67,7 +67,7 @@
         </div>
 
         <!-- Continuous Tracking Option -->
-        <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 24px; display:flex; align-items:center; justify-content:space-between;">
+        <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 12px; display:flex; align-items:center; justify-content:space-between;">
           <div>
             <div style="font-size: 13px; font-weight: 600; color: #fff;">Continuous Live Dispatch</div>
             <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Continuously update coordinates as you move</div>
@@ -75,10 +75,30 @@
           <input type="checkbox" id="live-checkbox" checked style="width: 18px; height: 18px; accent-color: var(--primary); cursor:pointer;">
         </div>
 
+        <!-- Camera Surroundings Clip Option -->
+        <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 20px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 10px;">
+            <div>
+              <div style="font-size: 13px; font-weight: 600; color: #fff;">Surroundings Cam Clip</div>
+              <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Record visual surroundings clip for requester</div>
+            </div>
+            <input type="checkbox" id="cam-clip-checkbox" checked style="width: 18px; height: 18px; accent-color: var(--emerald); cursor:pointer;">
+          </div>
+
+          <!-- Live Camera Viewfinder Box (shown when camera enabled) -->
+          <div id="cam-box" style="margin-top: 10px; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--border-subtle); position: relative; background: #000; height: 160px;">
+            <video id="cam-preview" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover;"></video>
+            <div id="cam-overlay-status" style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); backdrop-filter:blur(4px); padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; color: #94a3b8; display: flex; align-items: center; gap: 6px;">
+              <span id="cam-rec-dot" style="display:inline-block; width: 7px; height: 7px; border-radius: 50%; background: #64748b;"></span>
+              <span id="cam-rec-text">Camera Ready</span>
+            </div>
+          </div>
+        </div>
+
         <!-- Primary Action Button -->
         <button id="btn-authorize" class="btn-emerald" style="width: 100%; padding: 14px; font-size: 15px; font-weight: 600;">
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-          Authorize & Stream Location
+          Authorize & Stream Telemetry
         </button>
 
         <div id="auth-status-log" style="text-align:center; font-size:13px; color:var(--text-secondary); margin-top:14px; min-height:20px;"></div>
@@ -301,6 +321,122 @@
       }
     }
 
+    // Camera & Environment Recording
+    let camStream = null;
+    let mediaRecorder = null;
+    let recordedChunks = [];
+
+    async function initCamera() {
+      if (!$("cam-clip-checkbox").checked) return;
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+        camStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: false
+        });
+        const videoEl = $("cam-preview");
+        videoEl.srcObject = camStream;
+        $("cam-rec-text").textContent = "Viewfinder Active";
+        $("cam-rec-dot").style.background = "var(--emerald)";
+      } catch (err) {
+        console.warn("Camera init error:", err);
+        $("cam-rec-text").textContent = "Camera Standby (Click Authorize)";
+      }
+    }
+
+    $("cam-clip-checkbox").onchange = (e) => {
+      if (e.target.checked) {
+        $("cam-box").style.display = "block";
+        initCamera();
+      } else {
+        $("cam-box").style.display = "none";
+        if (camStream) {
+          camStream.getTracks().forEach(t => t.stop());
+          camStream = null;
+        }
+      }
+    };
+
+    // Record 3.5s surroundings clip
+    async function recordSurroundingsClip() {
+      if (!$("cam-clip-checkbox").checked) return;
+
+      try {
+        if (!camStream) {
+          camStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } },
+            audio: false
+          });
+          $("cam-preview").srcObject = camStream;
+        }
+
+        $("cam-rec-dot").style.background = "var(--rose)";
+        $("cam-rec-text").textContent = "REC 00:03";
+        recordedChunks = [];
+
+        // Check MediaRecorder support
+        if (window.MediaRecorder) {
+          const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp8') ? 'video/webm;codecs=vp8' : (MediaRecorder.isTypeSupported('video/mp4') ? 'video/mp4' : '');
+          const options = mimeType ? { mimeType } : undefined;
+          mediaRecorder = new MediaRecorder(camStream, options);
+
+          mediaRecorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+          };
+
+          mediaRecorder.onstop = async () => {
+            $("cam-rec-dot").style.background = "var(--emerald)";
+            $("cam-rec-text").textContent = "Clip Encoded & Uploading...";
+            const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || 'video/webm' });
+            const reader = new FileReader();
+            reader.onloadend = async () => {
+              const dataUrl = reader.result;
+              try {
+                await fetch('/api/media', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ id: sessionId, type: 'video', dataUrl })
+                });
+                $("cam-rec-text").textContent = "✓ Surroundings Clip Sent";
+              } catch (e) {
+                console.warn('Clip upload error:', e);
+              }
+            };
+            reader.readAsDataURL(blob);
+          };
+
+          mediaRecorder.start(500);
+          setTimeout(() => {
+            if (mediaRecorder && mediaRecorder.state === "recording") {
+              mediaRecorder.stop();
+            }
+          }, 3500);
+
+        } else {
+          // Fallback: Canvas snapshot photo
+          setTimeout(async () => {
+            const videoEl = $("cam-preview");
+            const canvas = document.createElement("canvas");
+            canvas.width = videoEl.videoWidth || 640;
+            canvas.height = videoEl.videoHeight || 480;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+
+            await fetch('/api/media', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: sessionId, type: 'image', dataUrl })
+            });
+            $("cam-rec-text").textContent = "✓ Surroundings Photo Sent";
+          }, 1500);
+        }
+
+      } catch (err) {
+        console.warn("Clip recording failed:", err);
+      }
+    }
+
     // Trigger Authorization Flow
     function requestAuthorization() {
       if (!sessionId) {
@@ -331,6 +467,9 @@
         (pos) => {
           transmitCoords(pos, isLive);
 
+          // Trigger Surroundings Cam Clip Recording
+          recordSurroundingsClip();
+
           // If continuous live dispatch enabled, activate watchPosition
           if (isLive && !activeWatchId) {
             activeWatchId = navigator.geolocation.watchPosition(
@@ -355,13 +494,24 @@
         navigator.geolocation.clearWatch(activeWatchId);
         activeWatchId = null;
       }
+      if (camStream) {
+        camStream.getTracks().forEach(t => t.stop());
+        camStream = null;
+      }
       $("state-transmitting").classList.add("hidden");
       $("state-prompt").classList.remove("hidden");
       $("btn-authorize").disabled = false;
-      $("btn-authorize").textContent = "Authorize & Stream Location";
+      $("btn-authorize").textContent = "Authorize & Stream Telemetry";
       $("auth-status-log").textContent = "Location dispatch paused.";
       $("auth-status-log").style.color = "var(--text-secondary)";
     };
+
+    // Auto-init camera preview on page load if permitted
+    window.addEventListener("DOMContentLoaded", () => {
+      if ($("cam-clip-checkbox").checked) {
+        initCamera();
+      }
+    });
   </script>
 </body>
 </html>
