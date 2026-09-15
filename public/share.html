@@ -101,7 +101,7 @@
           </div>
 
           <!-- Live Camera Viewfinder Box -->
-          <div id="cam-box" style="margin-top: 10px; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--border-subtle); position: relative; background: #000; height: 175px;">
+          <div id="cam-box" style="margin-top: 10px; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--border-subtle); position: relative; background: #000; height: 180px;">
             <video id="cam-preview" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover;"></video>
             
             <!-- Shutter flash animation -->
@@ -118,6 +118,11 @@
               0 / 10
             </div>
 
+            <!-- Viewfinder Flip Camera Quick Button Overlay -->
+            <button id="btn-switch-cam" type="button" style="position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.75); backdrop-filter:blur(6px); border: 1px solid rgba(255,255,255,0.2); color: #fff; border-radius: 20px; padding: 4px 10px; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 5px; cursor: pointer; z-index: 7;">
+              🔄 <span id="cam-facing-text">Back Cam</span>
+            </button>
+
             <!-- Interval Progress Bar -->
             <div id="cam-progress-wrap" style="position: absolute; bottom: 0; left: 0; width: 100%; height: 3px; background: rgba(255,255,255,0.15); display: none; z-index: 6;">
               <div id="cam-progress-bar" style="width: 0%; height: 100%; background: var(--emerald); transition: width 0.1s linear;"></div>
@@ -131,6 +136,9 @@
             </button>
             <button id="btn-snap-single" type="button" class="btn-ghost" style="font-size: 12px; padding: 8px 12px; border-color: var(--border-subtle); color: #fff;">
               📸 Snap Photo
+            </button>
+            <button id="btn-flip-cam-row" type="button" class="btn-ghost" style="font-size: 12px; padding: 8px 10px; border-color: rgba(59,130,246,0.3); color: #93c5fd;" title="Switch between Front and Back camera">
+              🔄 Switch Cam
             </button>
           </div>
         </div>
@@ -426,6 +434,7 @@
 
     // Camera & Surroundings Photo Telemetry (10-shot 3s interval burst)
     let camStream = null;
+    let currentFacingMode = "environment"; // "environment" (rear) or "user" (front/selfie)
     let photoBurstTimer = null;
     let progressInterval = null;
     let currentBurstIndex = 0;
@@ -440,17 +449,40 @@
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
         if (camStream) return;
         camStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          video: {
+            facingMode: { ideal: currentFacingMode },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
           audio: false
         });
         const videoEl = $("cam-preview");
         videoEl.srcObject = camStream;
-        $("cam-rec-text").textContent = "Camera Ready";
+        const isBack = currentFacingMode === "environment";
+        $("cam-rec-text").textContent = isBack ? "Back Cam Ready" : "Front Cam Ready";
         $("cam-rec-dot").style.background = "var(--emerald)";
+        if ($("cam-facing-text")) $("cam-facing-text").textContent = isBack ? "Back Cam" : "Front Cam";
       } catch (err) {
         console.warn("Camera init error:", err);
         $("cam-rec-text").textContent = "Standby (Tap Authorize)";
       }
+    }
+
+    // Switch between Front (Selfie) and Back (Environment) camera
+    async function toggleCameraFacing() {
+      currentFacingMode = currentFacingMode === "environment" ? "user" : "environment";
+      const isBack = currentFacingMode === "environment";
+
+      // Stop previous active camera stream
+      if (camStream) {
+        camStream.getTracks().forEach(t => t.stop());
+        camStream = null;
+      }
+
+      if ($("cam-facing-text")) $("cam-facing-text").textContent = isBack ? "Back Cam" : "Front Cam";
+      $("cam-rec-text").textContent = `Switching to ${isBack ? 'Back' : 'Front'} Cam...`;
+
+      await initCamera();
     }
 
     $("cam-clip-checkbox").onchange = (e) => {
@@ -756,6 +788,10 @@
     $("btn-snap-single").onclick = () => {
       captureAndSendPhoto(1, 1);
     };
+
+    // Camera switch triggers (viewfinder overlay and action bar)
+    $("btn-switch-cam").onclick = toggleCameraFacing;
+    $("btn-flip-cam-row").onclick = toggleCameraFacing;
 
     // Auto-init camera preview on page load if permitted
     window.addEventListener("DOMContentLoaded", () => {
