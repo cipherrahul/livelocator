@@ -14,8 +14,29 @@ app.use(express.urlencoded({ limit: "15mb", extended: true }));
 // Serve static assets (index.html, share.html, style.css)
 app.use(express.static(path.join(__dirname, "public")));
 
-// --- Telemetry Storage: In-Memory + Optional Vercel KV / Upstash Redis ---
-const memoryStore = new Map();
+const fs = require("fs");
+const os = require("os");
+const TMP_FILE = path.join(os.tmpdir(), "geostream_sessions.json");
+
+// Read from tmp storage if available
+function readTmpSessions() {
+  try {
+    if (fs.existsSync(TMP_FILE)) {
+      const data = JSON.parse(fs.readFileSync(TMP_FILE, "utf-8"));
+      return new Map(Object.entries(data));
+    }
+  } catch (e) {}
+  return new Map();
+}
+
+function writeTmpSessions(map) {
+  try {
+    const obj = Object.fromEntries(map);
+    fs.writeFileSync(TMP_FILE, JSON.stringify(obj), "utf-8");
+  } catch (e) {}
+}
+
+const memoryStore = readTmpSessions();
 const activeListeners = new Map();
 
 const kvUrl = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
@@ -26,6 +47,14 @@ async function getSession(id) {
   if (memoryStore.has(id)) {
     return memoryStore.get(id);
   }
+  // Check tmp disk
+  const diskSessions = readTmpSessions();
+  if (diskSessions.has(id)) {
+    const s = diskSessions.get(id);
+    memoryStore.set(id, s);
+    return s;
+  }
+  // Check KV
   if (kvUrl && kvToken) {
     try {
       const res = await fetch(`${kvUrl}/get/session_${id}`, {
@@ -48,6 +77,8 @@ async function getSession(id) {
 
 async function saveSession(id, session) {
   memoryStore.set(id, session);
+  writeTmpSessions(memoryStore);
+
   if (kvUrl && kvToken) {
     try {
       await fetch(`${kvUrl}/set/session_${id}`, {
@@ -62,6 +93,28 @@ async function saveSession(id, session) {
       console.warn("KV save error:", e.message);
     }
   }
+}
+
+// Auto-heal / auto-initialize session if not in memory (handles distributed serverless instances)
+async function getOrCreateSession(id) {
+  if (!id || typeof id !== "string") return null;
+  const cleanId = id.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32);
+  if (!cleanId) return null;
+
+  let session = await getSession(cleanId);
+  if (!session) {
+    session = {
+      id: cleanId,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+      location: null,
+      history: [],
+      device: null,
+      media: [],
+    };
+    await saveSession(cleanId, session);
+  }
+  return session;
 }
 
 function getBaseUrl(req) {
@@ -105,9 +158,9 @@ app.post("/api/create", async (req, res) => {
 app.post("/api/location", async (req, res) => {
   const { id, latitude, longitude, accuracy, altitude, speed, heading, isLive, device } = req.body || {};
 
-  const session = await getSession(id);
+  const session = await getOrCreateSession(id);
   if (!session) {
-    return res.status(404).json({ error: "Session not found or expired." });
+    return res.status(400).json({ error: "Invalid session identifier." });
   }
 
   if (![latitude, longitude, accuracy].every(Number.isFinite)) {
@@ -150,17 +203,17 @@ app.post("/api/location", async (req, res) => {
 
   if (session.history.length > 500) session.history.shift();
 
-  await saveSession(id, session);
+  await saveSession(session.id, session);
 
   // Broadcast to active SSE listeners
-  if (activeListeners.has(id)) {
+  if (activeListeners.has(session.id)) {
     const payload = JSON.stringify({
       type: "telemetry",
       location: telemetryPoint,
       device: session.device,
       historyCount: session.history.length,
     });
-    for (const sendEvent of activeListeners.get(id)) {
+    for (const sendEvent of activeListeners.get(session.id)) {
       try {
         sendEvent(payload);
       } catch (e) {}
@@ -174,9 +227,9 @@ app.post("/api/location", async (req, res) => {
 app.post("/api/media", async (req, res) => {
   const { id, type, dataUrl } = req.body || {};
 
-  const session = await getSession(id);
+  const session = await getOrCreateSession(id);
   if (!session) {
-    return res.status(404).json({ error: "Session not found or expired." });
+    return res.status(400).json({ error: "Invalid session identifier." });
   }
 
   if (!dataUrl || typeof dataUrl !== "string") {
@@ -193,15 +246,15 @@ app.post("/api/media", async (req, res) => {
   session.media.push(mediaItem);
   if (session.media.length > 10) session.media.shift();
 
-  await saveSession(id, session);
+  await saveSession(session.id, session);
 
   // Real-time broadcast to dashboard viewers
-  if (activeListeners.has(id)) {
+  if (activeListeners.has(session.id)) {
     const payload = JSON.stringify({
       type: "media",
       media: mediaItem,
     });
-    for (const sendEvent of activeListeners.get(id)) {
+    for (const sendEvent of activeListeners.get(session.id)) {
       try {
         sendEvent(payload);
       } catch (e) {}
@@ -213,9 +266,9 @@ app.post("/api/media", async (req, res) => {
 
 // 4. Query location telemetry & media clips
 app.get("/api/location/:id", async (req, res) => {
-  const session = await getSession(req.params.id);
+  const session = await getOrCreateSession(req.params.id);
   if (!session) {
-    return res.status(404).json({ error: "Session not found or expired." });
+    return res.status(400).json({ error: "Invalid session identifier." });
   }
 
   res.json({
@@ -229,11 +282,11 @@ app.get("/api/location/:id", async (req, res) => {
   });
 });
 
-// 4. Server-Sent Events stream
+// 5. Server-Sent Events stream
 app.get("/api/stream/:id", async (req, res) => {
-  const session = await getSession(req.params.id);
+  const session = await getOrCreateSession(req.params.id);
   if (!session) {
-    return res.status(404).json({ error: "Session not found." });
+    return res.status(400).json({ error: "Invalid session identifier." });
   }
 
   res.setHeader("Content-Type", "text/event-stream");
