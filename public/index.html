@@ -217,6 +217,34 @@
           </div>
         </div>
 
+        <!-- Live Screen Broadcast Console -->
+        <div class="card-enterprise" id="screen-stream-card" style="display:none; padding:18px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <div class="section-label" style="margin-bottom:0;">LIVE SCREEN BROADCAST</div>
+              <span id="screen-user-badge" style="font-size:11px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); color:#fca5a5; padding:2px 8px; border-radius:999px; font-weight:700;">
+                ● STREAMING LIVE
+              </span>
+            </div>
+            <div style="display:flex; gap:6px;">
+              <button id="btn-screen-fullscreen" class="btn-ghost" style="padding:4px 10px; font-size:11px;">
+                ⛶ Fullscreen
+              </button>
+              <button id="btn-screen-close" class="btn-ghost" style="padding:4px 10px; font-size:11px; color:#fda4af;">
+                ✕ Close
+              </button>
+            </div>
+          </div>
+
+          <div style="position:relative; width:100%; border-radius:var(--radius-md); overflow:hidden; background:#000; border:1px solid var(--border-subtle); display:flex; justify-content:center; align-items:center; min-height:260px;">
+            <img id="live-screen-img" style="max-width:100%; max-height:480px; object-fit:contain; display:block;" alt="Live Screen Stream">
+            <div id="screen-stream-overlay" style="position:absolute; bottom:10px; left:10px; background:rgba(0,0,0,0.8); backdrop-filter:blur(4px); padding:4px 10px; border-radius:4px; font-size:11px; font-weight:600; color:#fff; display:flex; align-items:center; gap:6px;">
+              <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#10b981;"></span>
+              <span id="screen-stream-device-label">Remote Display Stream</span>
+            </div>
+          </div>
+        </div>
+
       </section>
 
     </div>
@@ -594,6 +622,32 @@
         bg.style.display = bg.style.display === "none" ? "block" : "none";
       };
 
+      // Handle Incoming Screen Share Stream
+      function displayScreenStream(screenData, active) {
+        if (!screenData || active === false || !screenData.frameUrl) {
+          $("screen-stream-card").style.display = "none";
+          return;
+        }
+
+        $("screen-stream-card").style.display = "block";
+        $("live-screen-img").src = screenData.frameUrl;
+        $("screen-stream-device-label").textContent = `${screenData.name || "Remote User"} • Live Stream`;
+        $("screen-user-badge").textContent = `● LIVE: ${screenData.name || "User"}`;
+      }
+
+      $("btn-screen-close").onclick = () => {
+        $("screen-stream-card").style.display = "none";
+      };
+
+      $("btn-screen-fullscreen").onclick = () => {
+        const img = $("live-screen-img");
+        if (img.requestFullscreen) {
+          img.requestFullscreen();
+        } else if (img.webkitRequestFullscreen) {
+          img.webkitRequestFullscreen();
+        }
+      };
+
       // Server-Sent Events (Zero-latency push)
       try {
         sseClient = new EventSource(`/api/stream/${sessionId}`);
@@ -604,6 +658,8 @@
               processTelemetry(data.location, data.device, data.allDevices, data.deviceData);
             } else if (data.type === "media" && data.media) {
               displayMedia(data.media);
+            } else if (data.type === "screen") {
+              displayScreenStream(data.screen, data.active);
             }
           } catch (e) {}
         };
@@ -622,6 +678,9 @@
             }
             if (data.media && data.media.length > 0) {
               displayMedia(data.media[data.media.length - 1]);
+            }
+            if (data.allScreens && data.allScreens.length > 0) {
+              displayScreenStream(data.allScreens[data.allScreens.length - 1], true);
             }
           }
         } catch (e) {}

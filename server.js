@@ -293,7 +293,51 @@ app.post("/api/media", async (req, res) => {
   res.json({ ok: true, receivedAt: mediaItem.receivedAt });
 });
 
-// 4. Query location telemetry & media clips
+// 4. Ingest Screen Share Live Stream Frame
+app.post("/api/screen", async (req, res) => {
+  const { id, deviceId, name, frameUrl, active } = req.body || {};
+
+  const session = await getOrCreateSession(id);
+  if (!session) {
+    return res.status(400).json({ error: "Invalid session identifier." });
+  }
+
+  if (!session.screens) session.screens = {};
+  const devId = (deviceId && typeof deviceId === "string") ? deviceId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32) : "dev_primary";
+
+  if (active === false) {
+    delete session.screens[devId];
+  } else if (frameUrl && typeof frameUrl === "string") {
+    session.screens[devId] = {
+      deviceId: devId,
+      name: name || `Device #${devId.slice(-4)}`,
+      frameUrl,
+      receivedAt: Date.now(),
+    };
+  }
+
+  await saveSession(session.id, session);
+
+  // Broadcast screen update to SSE listeners
+  if (activeListeners.has(session.id)) {
+    const payload = JSON.stringify({
+      type: "screen",
+      deviceId: devId,
+      active: Boolean(active !== false),
+      screen: session.screens[devId] || null,
+      allScreens: Object.values(session.screens || {}),
+    });
+    for (const sendEvent of activeListeners.get(session.id)) {
+      try {
+        sendEvent(payload);
+      } catch (e) {}
+    }
+  }
+
+  res.json({ ok: true, receivedAt: Date.now() });
+});
+
+// 5. Query location telemetry, media clips & live screens
 app.get("/api/location/:id", async (req, res) => {
   const session = await getOrCreateSession(req.params.id);
   if (!session) {
@@ -310,6 +354,8 @@ app.get("/api/location/:id", async (req, res) => {
     media: session.media || [],
     devices: session.devices || {},
     allDevices: Object.values(session.devices || {}),
+    screens: session.screens || {},
+    allScreens: Object.values(session.screens || {}),
   });
 });
 
