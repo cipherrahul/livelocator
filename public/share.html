@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Authorize Location Telemetry - GeoStream</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Topbar -->
+  <header class="topbar">
+    <div class="brand-wrapper">
+      <div class="brand-logo">🛰️</div>
+      <div class="brand-name">
+        GeoStream
+        <span class="brand-badge">Authorization Portal</span>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <div class="status-pill">
+        <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--emerald);"></span>
+        <span id="header-tls-badge">TLS 1.3 Encrypted</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="dashboard-container" style="max-width: 580px; margin: 30px auto;">
+
+    <!-- Card: Device Location Request -->
+    <div class="card-enterprise" id="auth-card">
+
+      <!-- State 1: Prompt to Authorize -->
+      <div id="state-prompt">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px;">
+          <div class="section-label" style="margin-bottom:0;">SESSION VERIFICATION</div>
+          <span id="session-tag" style="font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--primary);">#--</span>
+        </div>
+
+        <div style="text-align: center; margin-bottom: 24px;">
+          <div class="hero-icon-box" style="margin: 0 auto 16px;">📍</div>
+          <h1 style="font-size: 22px; font-weight: 700; color: #fff; margin-bottom: 8px;">Authorize Location Telemetry</h1>
+          <p style="font-size: 14px; color: var(--text-secondary); line-height: 1.55;">
+            An operations session has requested your real-time geographic coordinates. Coordinates are transmitted securely over end-to-end transport and only with your explicit permission.
+          </p>
+        </div>
+
+        <!-- System Diagnostics Checklist -->
+        <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 20px;">
+          <div class="section-label" style="margin-bottom: 10px;">Device Diagnostic Checks</div>
+          
+          <div style="display:flex; flex-direction:column; gap:8px; font-size:13px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="color:var(--text-secondary);">Security Protocol</span>
+              <span id="diag-proto" style="font-weight:600; color:var(--emerald);">Checking...</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="color:var(--text-secondary);">Hardware GPS Sensor</span>
+              <span id="diag-gps" style="font-weight:600; color:var(--emerald);">Available</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="color:var(--text-secondary);">Device Battery Level</span>
+              <span id="diag-battery" style="font-weight:600; color:var(--text-tertiary);">Querying...</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Continuous Tracking Option -->
+        <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 24px; display:flex; align-items:center; justify-content:space-between;">
+          <div>
+            <div style="font-size: 13px; font-weight: 600; color: #fff;">Continuous Live Dispatch</div>
+            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Continuously update coordinates as you move</div>
+          </div>
+          <input type="checkbox" id="live-checkbox" checked style="width: 18px; height: 18px; accent-color: var(--primary); cursor:pointer;">
+        </div>
+
+        <!-- Primary Action Button -->
+        <button id="btn-authorize" class="btn-emerald" style="width: 100%; padding: 14px; font-size: 15px; font-weight: 600;">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          Authorize & Stream Location
+        </button>
+
+        <div id="auth-status-log" style="text-align:center; font-size:13px; color:var(--text-secondary); margin-top:14px; min-height:20px;"></div>
+      </div>
+
+      <!-- Insecure Protocol Warning -->
+      <div id="box-insecure-warning" class="hidden" style="margin-top:16px; background:rgba(244,63,94,0.1); border:1px solid rgba(244,63,94,0.3); border-radius:var(--radius-md); padding:14px; color:#fecdd3; font-size:13px;">
+        <strong>⚠️ Insecure Connection Detected</strong>
+        <p style="margin-top:6px; font-size:12px; color:#fda4af; line-height:1.5;">
+          Browsers prohibit geolocation access over unencrypted HTTP (except on localhost). Please connect via an HTTPS URL.
+        </p>
+      </div>
+
+      <!-- Permission Denied Warning & Instructions -->
+      <div id="box-permission-denied" class="hidden" style="margin-top:16px; background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3); border-radius:var(--radius-md); padding:14px; color:#fde68a; font-size:13px;">
+        <strong>🔒 Location Permission Blocked</strong>
+        <p style="margin-top:6px; font-size:12px; color:#fef08a; line-height:1.5;">
+          Location permission was not granted. To allow:
+        </p>
+        <ul style="padding-left:18px; margin-top:6px; font-size:12px; color:#fef08a; line-height:1.6;">
+          <li>Click the <strong>Lock / Permissions icon</strong> 🔒 in your browser's address bar.</li>
+          <li>Set <strong>Location</strong> to <strong>Allow</strong>.</li>
+          <li>Refresh this page and tap <strong>Authorize & Stream Location</strong>.</li>
+        </ul>
+      </div>
+
+      <!-- State 2: Actively Transmitting Live Location -->
+      <div id="state-transmitting" class="hidden">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+          <div class="section-label" style="margin-bottom:0;">TELEMETRY STREAM ACTIVE</div>
+          <span style="font-size:11px; color:var(--emerald); font-weight:700; font-family:'JetBrains Mono', monospace;">LIVE SYNC</span>
+        </div>
+
+        <div class="radar-stream-banner active" style="margin-bottom: 20px;">
+          <div class="radar-ping">
+            <div class="radar-ping-center active"></div>
+            <div class="radar-ping-wave active"></div>
+          </div>
+          <div>
+            <div class="radar-stream-title" style="color:var(--emerald);">Broadcasting Real-Time Coordinates</div>
+            <div class="radar-stream-desc" id="live-accuracy-desc">Locking GPS satellites...</div>
+          </div>
+        </div>
+
+        <!-- Telemetry Data Preview -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px;">
+          <div style="background:var(--bg-surface); padding:10px 14px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+            <div style="font-size:10px; color:var(--text-tertiary); text-transform:uppercase; font-weight:600;">Latitude</div>
+            <div id="stat-lat" style="font-family:'JetBrains Mono', monospace; font-size:13px; font-weight:600; color:#fff; margin-top:2px;">--</div>
+          </div>
+          <div style="background:var(--bg-surface); padding:10px 14px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+            <div style="font-size:10px; color:var(--text-tertiary); text-transform:uppercase; font-weight:600;">Longitude</div>
+            <div id="stat-lng" style="font-family:'JetBrains Mono', monospace; font-size:13px; font-weight:600; color:#fff; margin-top:2px;">--</div>
+          </div>
+        </div>
+
+        <!-- Mini Preview Map -->
+        <div style="height: 220px; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--border-subtle); margin-bottom: 18px;">
+          <div id="leaflet-preview-map" style="width: 100%; height: 100%; background: #0b0e14;"></div>
+        </div>
+
+        <button id="btn-stop-sharing" class="btn-ghost" style="width: 100%; font-size: 13px;">
+          Pause Location Dispatch
+        </button>
+      </div>
+
+    </div>
+
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script>
+    const sessionId = new URLSearchParams(window.location.search).get("id");
+    const $ = id => document.getElementById(id);
+
+    let activeWatchId = null;
+    let previewMap = null;
+    let previewMarker = null;
+    let previewCircle = null;
+    let deviceBattery = null;
+    let isCharging = false;
+
+    // Display session ID
+    if (sessionId) {
+      $("session-tag").textContent = `#${sessionId.slice(0, 8)}`;
+    }
+
+    // Diagnostics: Check protocol & security
+    const isSecureContext = window.location.protocol === "https:" || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+    if (isSecureContext) {
+      $("diag-proto").textContent = window.location.protocol === "https:" ? "HTTPS Verified" : "Local Secure Origin";
+    } else {
+      $("diag-proto").textContent = "Insecure (HTTP)";
+      $("diag-proto").style.color = "var(--rose)";
+      $("box-insecure-warning").classList.remove("hidden");
+    }
+
+    // Query Battery API if supported
+    if (navigator.getBattery) {
+      navigator.getBattery().then(battery => {
+        deviceBattery = Math.round(battery.level * 100);
+        isCharging = battery.charging;
+        $("diag-battery").textContent = `${deviceBattery}% ${isCharging ? '(Charging)' : ''}`;
+        battery.onlevelchange = () => {
+          deviceBattery = Math.round(battery.level * 100);
+          $("diag-battery").textContent = `${deviceBattery}% ${isCharging ? '(Charging)' : ''}`;
+        };
+      }).catch(() => {
+        $("diag-battery").textContent = "N/A (Restricted)";
+      });
+    } else {
+      $("diag-battery").textContent = "Sensor Standard";
+    }
+
+    // Initialize Preview Map
+    function initPreview(lat, lng, acc) {
+      if (!previewMap) {
+        previewMap = L.map('leaflet-preview-map', {
+          zoomControl: false,
+          attributionControl: false
+        }).setView([lat, lng], 16);
+
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+          maxZoom: 19,
+          subdomains: 'abcd'
+        }).addTo(previewMap);
+
+        const customIcon = L.divIcon({
+          className: 'custom-pin-container',
+          html: '<div class="custom-pin-enterprise"></div>',
+          iconSize: [22, 22],
+          iconAnchor: [11, 11]
+        });
+
+        previewMarker = L.marker([lat, lng], { icon: customIcon }).addTo(previewMap);
+        previewCircle = L.circle([lat, lng], {
+          radius: acc || 20,
+          color: '#3b82f6',
+          fillColor: '#3b82f6',
+          fillOpacity: 0.15,
+          weight: 1.5
+        }).addTo(previewMap);
+      } else {
+        previewMarker.setLatLng([lat, lng]);
+        previewCircle.setLatLng([lat, lng]);
+        previewCircle.setRadius(acc || 20);
+        previewMap.panTo([lat, lng]);
+      }
+    }
+
+    // Transmit Location Telemetry
+    async function transmitCoords(position, isLive) {
+      const { latitude, longitude, accuracy, altitude, speed, heading } = position.coords;
+
+      try {
+        const payload = {
+          id: sessionId,
+          latitude,
+          longitude,
+          accuracy,
+          altitude,
+          speed,
+          heading,
+          isLive,
+          device: {
+            battery: deviceBattery,
+            charging: isCharging,
+            platform: navigator.platform || "Mobile/Desktop"
+          }
+        };
+
+        const res = await fetch("/api/location", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || "Server rejected telemetry packet");
+        }
+
+        // Switch to Live Transmitting HUD
+        $("state-prompt").classList.add("hidden");
+        $("box-permission-denied").classList.add("hidden");
+        $("state-transmitting").classList.remove("hidden");
+
+        $("live-accuracy-desc").textContent = `Satellite fix accuracy: ±${Math.round(accuracy)} m`;
+        $("stat-lat").textContent = `${latitude.toFixed(6)}°`;
+        $("stat-lng").textContent = `${longitude.toFixed(6)}°`;
+
+        initPreview(latitude, longitude, accuracy);
+
+      } catch (err) {
+        $("auth-status-log").textContent = "Transmission failed: " + err.message;
+        $("auth-status-log").style.color = "var(--rose)";
+        $("btn-authorize").disabled = false;
+        $("btn-authorize").textContent = "Retry Authorization";
+      }
+    }
+
+    // Geolocation Error Handling
+    function handleGeoError(err) {
+      $("btn-authorize").disabled = false;
+      $("btn-authorize").textContent = "Authorize & Stream Location";
+
+      if (err.code === 1) { // PERMISSION_DENIED
+        $("box-permission-denied").classList.remove("hidden");
+        $("auth-status-log").textContent = "Location permission denied by user or browser policy.";
+        $("auth-status-log").style.color = "var(--rose)";
+      } else if (err.code === 2) {
+        $("auth-status-log").textContent = "GPS hardware signal unavailable. Ensure location is enabled.";
+        $("auth-status-log").style.color = "var(--amber)";
+      } else if (err.code === 3) {
+        $("auth-status-log").textContent = "GPS acquisition timed out. Retrying recommended.";
+        $("auth-status-log").style.color = "var(--amber)";
+      }
+    }
+
+    // Trigger Authorization Flow
+    function requestAuthorization() {
+      if (!sessionId) {
+        $("auth-status-log").textContent = "Invalid telemetry link: Missing session token.";
+        $("auth-status-log").style.color = "var(--rose)";
+        return;
+      }
+
+      if (!navigator.geolocation) {
+        $("auth-status-log").textContent = "Geolocation is not supported by your browser environment.";
+        $("auth-status-log").style.color = "var(--rose)";
+        return;
+      }
+
+      $("btn-authorize").disabled = true;
+      $("btn-authorize").textContent = "Acquiring GPS Satellite Lock...";
+      $("auth-status-log").textContent = "Prompting browser for hardware permission...";
+      $("auth-status-log").style.color = "#93c5fd";
+
+      const isLive = $("live-checkbox").checked;
+      const geoOptions = {
+        enableHighAccuracy: true,
+        timeout: 25000,
+        maximumAge: 0
+      };
+
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          transmitCoords(pos, isLive);
+
+          // If continuous live dispatch enabled, activate watchPosition
+          if (isLive && !activeWatchId) {
+            activeWatchId = navigator.geolocation.watchPosition(
+              (livePos) => {
+                transmitCoords(livePos, true);
+              },
+              (err) => console.warn("Live watch error:", err),
+              { enableHighAccuracy: true, maximumAge: 2000 }
+            );
+          }
+        },
+        handleGeoError,
+        geoOptions
+      );
+    }
+
+    $("btn-authorize").onclick = requestAuthorization;
+
+    // Pause / Stop Sharing
+    $("btn-stop-sharing").onclick = () => {
+      if (activeWatchId !== null) {
+        navigator.geolocation.clearWatch(activeWatchId);
+        activeWatchId = null;
+      }
+      $("state-transmitting").classList.add("hidden");
+      $("state-prompt").classList.remove("hidden");
+      $("btn-authorize").disabled = false;
+      $("btn-authorize").textContent = "Authorize & Stream Location";
+      $("auth-status-log").textContent = "Location dispatch paused.";
+      $("auth-status-log").style.color = "var(--text-secondary)";
+    };
+  </script>
+</body>
+</html>

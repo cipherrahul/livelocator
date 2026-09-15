@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Enterprise Live Telemetry - Real-Time Location Tracker</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Enterprise Topbar -->
+  <header class="topbar">
+    <a href="/" class="brand-wrapper">
+      <div class="brand-logo">🛰️</div>
+      <div class="brand-name">
+        GeoStream
+        <span class="brand-badge">Enterprise GPS</span>
+      </div>
+    </a>
+    <div class="topbar-right">
+      <div class="status-pill" id="top-status-pill">
+        <span class="pulse-dot-sm" id="top-pulse-dot"></span>
+        <span id="top-status-text">Ready to Dispatch</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="dashboard-container">
+
+    <!-- State 1: Dispatch / Initialize Session (Shown when no session is active) -->
+    <section class="card-enterprise hero-dispatch" id="init-view">
+      <div class="hero-icon-box">📍</div>
+      <h1 class="hero-title">Real-Time Location Tracking</h1>
+      <p class="hero-desc">
+        Initialize a secure, encrypted telemetry session. Share the generated link with any mobile or desktop user. Once authorized by the recipient, their precise GPS coordinates and trajectory stream live to this operations console in real time.
+      </p>
+      <button id="btn-create-session" class="btn-primary" style="padding: 13px 28px; font-size: 15px;">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+        Initialize Tracking Session
+      </button>
+    </section>
+
+    <!-- State 2: Active Operations Dashboard (Shown when tracking session is active) -->
+    <div class="ops-grid hidden" id="ops-view">
+
+      <!-- Left Panel: Session & Dispatch Controls -->
+      <aside class="sidebar-panel">
+
+        <!-- Session Card -->
+        <div class="card-enterprise">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <div class="section-label" style="margin-bottom:0;">Session Credentials</div>
+            <span style="font-size: 11px; color: var(--emerald); font-family:'JetBrains Mono', monospace; font-weight:600;">E2E ENCRYPTED</span>
+          </div>
+
+          <div style="margin-bottom: 14px;">
+            <label class="section-label">Dispatch Link</label>
+            <div class="input-copy-group">
+              <input type="text" id="share-link-input" class="input-field" readonly>
+              <button id="btn-copy-link" class="btn-ghost" style="padding: 6px 12px; font-size: 12px;">Copy</button>
+            </div>
+          </div>
+
+          <div style="display:flex; gap:8px; margin-bottom:16px;">
+            <button id="btn-whatsapp-share" class="btn-emerald" style="flex:1; padding: 8px 12px; font-size: 12px;">
+              <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981z"/></svg>
+              WhatsApp
+            </button>
+            <button id="btn-native-share" class="btn-ghost" style="flex:1; padding: 8px 12px; font-size: 12px;">
+              Share...
+            </button>
+          </div>
+
+          <!-- Quick QR Code Scanner -->
+          <div style="text-align: center; margin-bottom: 12px;">
+            <div class="qr-card-mini" style="display: inline-block;">
+              <div id="qrcode-box"></div>
+            </div>
+            <div style="font-size: 11px; color: var(--text-tertiary); margin-top: 6px; font-weight: 500;">
+              Scan to test directly on smartphone
+            </div>
+          </div>
+
+          <button id="btn-terminate-session" class="btn-ghost" style="width: 100%; font-size: 12px; border-color: rgba(244,63,94,0.2); color: #fda4af;">
+            Terminate Session
+          </button>
+        </div>
+
+        <!-- Telemetry Stream Status -->
+        <div class="radar-stream-banner" id="stream-banner">
+          <div class="radar-ping">
+            <div class="radar-ping-center" id="radar-center"></div>
+            <div class="radar-ping-wave" id="radar-wave"></div>
+          </div>
+          <div style="flex:1;">
+            <div class="radar-stream-title" id="stream-status-title">Awaiting Device GPS Acquisition</div>
+            <div class="radar-stream-desc" id="stream-status-desc">Listening on real-time SSE channel...</div>
+          </div>
+        </div>
+
+      </aside>
+
+      <!-- Right Main: Map Canvas & Telemetry Stream -->
+      <section style="display:flex; flex-direction:column; gap:16px;">
+        
+        <!-- Map Canvas -->
+        <div class="map-canvas-frame">
+          <!-- Leaflet Map Element -->
+          <div id="leaflet-map"></div>
+
+          <!-- Map Top Overlay Badges -->
+          <div class="map-hud-top">
+            <div class="map-hud-pill">
+              <span id="hud-status-indicator" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--amber);"></span>
+              <span id="hud-status-text">Signal: Waiting</span>
+            </div>
+            <div class="map-hud-pill" id="hud-acc-pill" style="display:none;">
+              <span id="hud-accuracy-val">--</span>
+            </div>
+          </div>
+
+          <!-- Map Bottom Overlay Controls -->
+          <div class="map-hud-controls">
+            <button id="btn-map-layer" class="btn-ghost" style="background:rgba(14,18,27,0.85); backdrop-filter:blur(8px);" title="Toggle Dark/Street Map Tiles">
+              🗺️ Style
+            </button>
+            <button id="btn-map-recenter" class="btn-ghost" style="background:rgba(14,18,27,0.85); backdrop-filter:blur(8px);" title="Recenter on target">
+              🎯 Center
+            </button>
+            <a id="btn-open-google" target="_blank" rel="noopener" class="btn-primary" style="text-decoration:none; padding: 7px 14px; font-size:12px;">
+              Google Maps ↗
+            </a>
+          </div>
+        </div>
+
+        <!-- Real-Time Street Address Banner -->
+        <div class="address-strip" id="address-strip">
+          <div class="address-strip-icon">📍</div>
+          <div class="address-strip-text" id="address-strip-text">
+            No telemetry received yet. Awaiting remote device permission.
+          </div>
+        </div>
+
+        <!-- High-Density Telemetry Metric Row -->
+        <div class="telemetry-row">
+          <div class="telem-cell">
+            <div class="telem-label">Coordinates (WGS84)</div>
+            <div class="telem-value" id="telem-coords">-- , --</div>
+            <div class="telem-hint" id="telem-coords-copy" style="cursor:pointer; color:var(--primary);">Click to copy</div>
+          </div>
+
+          <div class="telem-cell">
+            <div class="telem-label">Accuracy Confidence</div>
+            <div class="telem-value" id="telem-accuracy">--</div>
+            <div class="telem-hint" id="telem-accuracy-grade">Awaiting GPS fix</div>
+          </div>
+
+          <div class="telem-cell">
+            <div class="telem-label">Ground Velocity</div>
+            <div class="telem-value" id="telem-velocity">--</div>
+            <div class="telem-hint" id="telem-heading">Bearing: --</div>
+          </div>
+
+          <div class="telem-cell">
+            <div class="telem-label">Signal Recency</div>
+            <div class="telem-value" id="telem-recency">--</div>
+            <div class="telem-hint" id="telem-recency-hint">Real-time sync</div>
+          </div>
+        </div>
+
+      </section>
+
+    </div>
+
+  </main>
+
+  <!-- Scripts: Leaflet and QRCodeJS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <script>
+    // State management
+    let currentSessionId = null;
+    let sseClient = null;
+    let pollInterval = null;
+    let recencyTimer = null;
+    let map = null;
+    let targetMarker = null;
+    let targetCircle = null;
+    let routePolyline = null;
+    let routeHistory = [];
+    let currentTileLayer = null;
+    let isDarkTheme = true;
+    let lastSignalTimestamp = null;
+    let latestTelemetry = null;
+
+    const $ = id => document.getElementById(id);
+
+    // Audio chime for verified live lock
+    function playLockSound() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
+        osc.frequency.exponentialRampToValueAtTime(783.99, ctx.currentTime + 0.12); // G5
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.3);
+      } catch (e) {}
+    }
+
+    // Map Layers
+    const TILE_DARK = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+    const TILE_STREET = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+
+    function initMap(initialLat, initialLng) {
+      if (map) return;
+
+      map = L.map('leaflet-map', {
+        zoomControl: true,
+        attributionControl: false
+      }).setView([initialLat || 20, initialLng || 0], initialLat ? 16 : 3);
+
+      currentTileLayer = L.tileLayer(TILE_DARK, {
+        maxZoom: 19,
+        subdomains: 'abcd'
+      }).addTo(map);
+
+      // Route trajectory polyline
+      routePolyline = L.polyline([], {
+        color: '#3b82f6',
+        weight: 3.5,
+        opacity: 0.85,
+        dashArray: '5, 8'
+      }).addTo(map);
+
+      // High-precision custom enterprise pin
+      const pinIcon = L.divIcon({
+        className: 'custom-pin-container',
+        html: '<div class="custom-pin-enterprise"></div>',
+        iconSize: [22, 22],
+        iconAnchor: [11, 11]
+      });
+
+      if (initialLat && initialLng) {
+        targetMarker = L.marker([initialLat, initialLng], { icon: pinIcon }).addTo(map);
+        targetCircle = L.circle([initialLat, initialLng], {
+          radius: 25,
+          color: '#3b82f6',
+          fillColor: '#3b82f6',
+          fillOpacity: 0.12,
+          weight: 1.5
+        }).addTo(map);
+      }
+    }
+
+    // Toggle Map Style (Dark / Street)
+    $("btn-map-layer").onclick = () => {
+      if (!map) return;
+      isDarkTheme = !isDarkTheme;
+      map.removeLayer(currentTileLayer);
+      currentTileLayer = L.tileLayer(isDarkTheme ? TILE_DARK : TILE_STREET, {
+        maxZoom: 19,
+        subdomains: isDarkTheme ? 'abcd' : 'abc'
+      }).addTo(map);
+    };
+
+    // Recenter
+    $("btn-map-recenter").onclick = () => {
+      if (map && latestTelemetry) {
+        map.setView([latestTelemetry.latitude, latestTelemetry.longitude], 17, { animate: true });
+      }
+    };
+
+    // Reverse Geocode
+    let geocodeDebounce = null;
+    function reverseGeocode(lat, lng) {
+      clearTimeout(geocodeDebounce);
+      geocodeDebounce = setTimeout(async () => {
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`);
+          if (!res.ok) throw new Error();
+          const d = await res.json();
+          if (d && d.display_name) {
+            $("address-strip-text").textContent = d.display_name;
+          } else {
+            $("address-strip-text").textContent = `Geographic Location: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+          }
+        } catch (e) {
+          $("address-strip-text").textContent = `Position Coordinates: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+        }
+      }, 600);
+    }
+
+    // Process Ingested Real-Time Telemetry
+    function processTelemetry(loc, device) {
+      if (!loc || !Number.isFinite(loc.latitude) || !Number.isFinite(loc.longitude)) return;
+
+      const isFirst = !latestTelemetry;
+      latestTelemetry = loc;
+      lastSignalTimestamp = loc.receivedAt || Date.now();
+
+      if (isFirst) {
+        playLockSound();
+      }
+
+      // Initialize map on first coordinate arrival if not already initialized
+      if (!map) {
+        initMap(loc.latitude, loc.longitude);
+      } else if (!targetMarker) {
+        const pinIcon = L.divIcon({
+          className: 'custom-pin-container',
+          html: '<div class="custom-pin-enterprise"></div>',
+          iconSize: [22, 22],
+          iconAnchor: [11, 11]
+        });
+        targetMarker = L.marker([loc.latitude, loc.longitude], { icon: pinIcon }).addTo(map);
+        targetCircle = L.circle([loc.latitude, loc.longitude], {
+          radius: loc.accuracy || 20,
+          color: '#3b82f6',
+          fillColor: '#3b82f6',
+          fillOpacity: 0.12,
+          weight: 1.5
+        }).addTo(map);
+      }
+
+      const point = [loc.latitude, loc.longitude];
+      targetMarker.setLatLng(point);
+
+      if (targetCircle) {
+        targetCircle.setLatLng(point);
+        targetCircle.setRadius(loc.accuracy || 20);
+      }
+
+      // Add to trajectory polyline
+      routeHistory.push(point);
+      if (routePolyline) {
+        routePolyline.setLatLngs(routeHistory);
+      }
+
+      map.panTo(point, { animate: true, duration: 0.8 });
+
+      // Update Top Status Pill
+      $("top-status-pill").style.borderColor = "rgba(16,185,129,0.3)";
+      $("top-pulse-dot").className = "pulse-dot-sm active";
+      $("top-status-text").textContent = loc.isLive ? "Live Stream Active" : "Position Transmitted";
+
+      // Update Radar Stream Status
+      $("stream-banner").className = "radar-stream-banner active";
+      $("radar-center").className = "radar-ping-center active";
+      $("radar-wave").className = "radar-ping-wave active";
+      $("stream-status-title").textContent = "GPS Signal Locked • Actively Tracking";
+      $("stream-status-desc").textContent = `Accuracy ±${loc.accuracy}m • Real-time telemetry feed`;
+
+      // Map HUD
+      $("hud-status-indicator").style.background = "var(--emerald)";
+      $("hud-status-text").textContent = loc.isLive ? "Live GPS Connected" : "GPS Position Locked";
+      $("hud-acc-pill").style.display = "flex";
+      $("hud-accuracy-val").textContent = `±${loc.accuracy} m accuracy`;
+      $("btn-open-google").href = `https://www.google.com/maps?q=${loc.latitude},${loc.longitude}`;
+
+      // Telemetry Data Cells
+      $("telem-coords").textContent = `${loc.latitude.toFixed(6)}°, ${loc.longitude.toFixed(6)}°`;
+      $("telem-accuracy").textContent = `±${loc.accuracy} m`;
+      $("telem-accuracy-grade").textContent = loc.accuracy <= 10 ? "Optimal (Military/Survey)" : (loc.accuracy <= 30 ? "High Precision Fix" : "Degraded / Cellular");
+
+      const speedText = loc.speed ? `${loc.speed} km/h` : "Stationary (0 km/h)";
+      $("telem-velocity").textContent = speedText;
+      $("telem-heading").textContent = loc.heading !== null ? `Bearing: ${loc.heading}°` : (device && device.battery !== null ? `Device Battery: ${device.battery}%` : "Bearing: N/A");
+
+      reverseGeocode(loc.latitude, loc.longitude);
+      updateSignalRecency();
+    }
+
+    // Relative Time Tick
+    function updateSignalRecency() {
+      if (!lastSignalTimestamp) return;
+      const elapsedSec = Math.floor((Date.now() - lastSignalTimestamp) / 1000);
+      if (elapsedSec < 2) {
+        $("telem-recency").textContent = "Just now";
+        $("telem-recency-hint").textContent = "Sub-second sync";
+      } else if (elapsedSec < 60) {
+        $("telem-recency").textContent = `${elapsedSec}s ago`;
+        $("telem-recency-hint").textContent = "Real-time sync active";
+      } else {
+        const mins = Math.floor(elapsedSec / 60);
+        $("telem-recency").textContent = `${mins}m ago`;
+        $("telem-recency-hint").textContent = "Last telemetry packet";
+      }
+    }
+
+    // Connect to Telemetry Pipeline
+    function connectTelemetryStream(sessionId) {
+      currentSessionId = sessionId;
+      localStorage.setItem("geostream_active_session", sessionId);
+
+      if (sseClient) sseClient.close();
+      if (pollInterval) clearInterval(pollInterval);
+      if (recencyTimer) clearInterval(recencyTimer);
+
+      recencyTimer = setInterval(updateSignalRecency, 1000);
+
+      // Server-Sent Events (Zero-latency push)
+      try {
+        sseClient = new EventSource(`/api/stream/${sessionId}`);
+        sseClient.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === "telemetry" && data.location) {
+              processTelemetry(data.location, data.device);
+            }
+          } catch (e) {}
+        };
+      } catch (e) {
+        console.warn("SSE fallback to polling");
+      }
+
+      // Fast polling backup
+      pollInterval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/location/${sessionId}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.location) {
+              processTelemetry(data.location, data.device);
+            }
+          }
+        } catch (e) {}
+      }, 2000);
+    }
+
+    // Setup Active Operations View
+    function activateOpsView(sessionId, shareUrl) {
+      $("init-view").classList.add("hidden");
+      $("ops-view").classList.remove("hidden");
+      $("share-link-input").value = shareUrl;
+
+      // Update URL query state
+      const updatedUrl = `${window.location.protocol}//${window.location.host}${window.location.pathname}?track=${sessionId}`;
+      window.history.replaceState({ track: sessionId }, "", updatedUrl);
+
+      // Render QR Code
+      const qrBox = $("qrcode-box");
+      qrBox.innerHTML = "";
+      new QRCode(qrBox, {
+        text: shareUrl,
+        width: 128,
+        height: 128,
+        colorDark: "#07090e",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.M
+      });
+
+      // Initialize map canvas
+      initMap();
+      connectTelemetryStream(sessionId);
+    }
+
+    // Button: Create Session
+    $("btn-create-session").onclick = async () => {
+      $("btn-create-session").disabled = true;
+      $("btn-create-session").textContent = "Initializing Secure Session...";
+
+      try {
+        const res = await fetch("/api/create", { method: "POST" });
+        if (!res.ok) throw new Error("Failed to initialize session");
+        const data = await res.json();
+        activateOpsView(data.id, data.url);
+      } catch (err) {
+        alert("Session initialization failed: " + err.message);
+        $("btn-create-session").disabled = false;
+        $("btn-create-session").textContent = "Initialize Tracking Session";
+      }
+    };
+
+    // Button: Copy Link
+    $("btn-copy-link").onclick = async () => {
+      try {
+        await navigator.clipboard.writeText($("share-link-input").value);
+        $("btn-copy-link").textContent = "✓ Copied";
+        setTimeout(() => { $("btn-copy-link").textContent = "Copy"; }, 2000);
+      } catch (e) {
+        $("share-link-input").select();
+        document.execCommand("copy");
+        $("btn-copy-link").textContent = "✓ Copied";
+        setTimeout(() => { $("btn-copy-link").textContent = "Copy"; }, 2000);
+      }
+    };
+
+    // Button: WhatsApp
+    $("btn-whatsapp-share").onclick = () => {
+      const url = $("share-link-input").value;
+      const text = encodeURIComponent(`Please click this link to authorize location telemetry: ${url}`);
+      window.open(`https://api.whatsapp.com/send?text=${text}`, "_blank");
+    };
+
+    // Button: Native Share
+    $("btn-native-share").onclick = async () => {
+      const url = $("share-link-input").value;
+      if (navigator.share) {
+        try {
+          await navigator.share({
+            title: "Live Location Telemetry",
+            text: "Authorize your current location:",
+            url: url
+          });
+        } catch (e) {}
+      } else {
+        $("btn-copy-link").click();
+      }
+    };
+
+    // Copy Coordinates shortcut
+    $("telem-coords-copy").onclick = () => {
+      if (latestTelemetry) {
+        navigator.clipboard.writeText(`${latestTelemetry.latitude},${latestTelemetry.longitude}`);
+        $("telem-coords-copy").textContent = "✓ Copied!";
+        setTimeout(() => { $("telem-coords-copy").textContent = "Click to copy"; }, 2000);
+      }
+    };
+
+    // Terminate Session
+    $("btn-terminate-session").onclick = () => {
+      if (confirm("Terminate this tracking session? Telemetry history will be cleared.")) {
+        localStorage.removeItem("geostream_active_session");
+        window.location.href = "/";
+      }
+    };
+
+    // Initial Load Check
+    window.addEventListener("DOMContentLoaded", () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const trackId = urlParams.get("track");
+
+      if (trackId) {
+        const shareUrl = `${window.location.protocol}//${window.location.host}/share.html?id=${trackId}`;
+        activateOpsView(trackId, shareUrl);
+      }
+    });
+  </script>
+</body>
+</html>
