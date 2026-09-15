@@ -154,9 +154,9 @@ app.post("/api/create", async (req, res) => {
   });
 });
 
-// 2. Ingest real-time coordinates
+// 2. Ingest real-time coordinates (Multi-device enabled)
 app.post("/api/location", async (req, res) => {
-  const { id, latitude, longitude, accuracy, altitude, speed, heading, isLive, device } = req.body || {};
+  const { id, deviceId, name, color, latitude, longitude, accuracy, altitude, speed, heading, isLive, device } = req.body || {};
 
   const session = await getOrCreateSession(id);
   if (!session) {
@@ -172,6 +172,10 @@ app.post("/api/location", async (req, res) => {
   }
 
   const now = Date.now();
+  const devId = (deviceId && typeof deviceId === "string") ? deviceId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32) : "dev_primary";
+  const devName = (name && typeof name === "string") ? name.trim().slice(0, 40) : `Device #${devId.slice(-4)}`;
+  const devColor = (color && typeof color === "string") ? color.slice(0, 10) : "#3b82f6";
+
   const telemetryPoint = {
     latitude: Number(latitude.toFixed(6)),
     longitude: Number(longitude.toFixed(6)),
@@ -183,17 +187,35 @@ app.post("/api/location", async (req, res) => {
     receivedAt: now,
   };
 
-  session.location = telemetryPoint;
+  if (!session.devices) session.devices = {};
+  if (!session.devices[devId]) {
+    session.devices[devId] = {
+      id: devId,
+      name: devName,
+      color: devColor,
+      location: null,
+      history: [],
+      device: null,
+      firstSeen: now,
+    };
+  }
+
+  const targetDev = session.devices[devId];
+  targetDev.name = devName;
+  targetDev.color = devColor;
+  targetDev.location = telemetryPoint;
+  targetDev.lastSeen = now;
+
   if (device && typeof device === "object") {
-    session.device = {
+    targetDev.device = {
       battery: Number.isFinite(device.battery) ? Math.round(device.battery) : null,
       charging: Boolean(device.charging),
       platform: typeof device.platform === "string" ? device.platform.slice(0, 50) : null,
     };
   }
 
-  if (!session.history) session.history = [];
-  session.history.push({
+  if (!targetDev.history) targetDev.history = [];
+  targetDev.history.push({
     lat: telemetryPoint.latitude,
     lng: telemetryPoint.longitude,
     acc: telemetryPoint.accuracy,
@@ -201,17 +223,24 @@ app.post("/api/location", async (req, res) => {
     time: now,
   });
 
-  if (session.history.length > 500) session.history.shift();
+  if (targetDev.history.length > 500) targetDev.history.shift();
+
+  // Backward-compatibility primary location
+  session.location = telemetryPoint;
+  session.device = targetDev.device;
+  session.latestDeviceId = devId;
 
   await saveSession(session.id, session);
 
-  // Broadcast to active SSE listeners
+  // Broadcast multi-device telemetry to active SSE listeners
   if (activeListeners.has(session.id)) {
     const payload = JSON.stringify({
       type: "telemetry",
+      deviceId: devId,
+      deviceData: targetDev,
+      allDevices: Object.values(session.devices),
       location: telemetryPoint,
-      device: session.device,
-      historyCount: session.history.length,
+      historyCount: targetDev.history.length,
     });
     for (const sendEvent of activeListeners.get(session.id)) {
       try {
@@ -220,7 +249,7 @@ app.post("/api/location", async (req, res) => {
     }
   }
 
-  res.json({ ok: true, receivedAt: now });
+  res.json({ ok: true, deviceId: devId, receivedAt: now });
 });
 
 // 3. Upload Environment Verification Camera Clip / Snapshot
@@ -279,6 +308,8 @@ app.get("/api/location/:id", async (req, res) => {
     device: session.device,
     history: session.history,
     media: session.media || [],
+    devices: session.devices || {},
+    allDevices: Object.values(session.devices || {}),
   });
 });
 
@@ -308,7 +339,8 @@ app.get("/api/stream/:id", async (req, res) => {
       type: "telemetry",
       location: session.location,
       device: session.device,
-      historyCount: session.history.length,
+      historyCount: session.history ? session.history.length : 0,
+      allDevices: Object.values(session.devices || {}),
     }));
   } else {
     sendEvent(JSON.stringify({

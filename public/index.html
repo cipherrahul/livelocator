@@ -90,6 +90,24 @@
           </button>
         </div>
 
+        <!-- Active Transmitters Multi-User Roster -->
+        <div class="card-enterprise" id="devices-roster-card" style="padding:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <div class="section-label" style="margin-bottom:0;">CONNECTED TRANSMITTERS</div>
+            <span id="roster-count-badge" style="font-size:11px; background:rgba(59,130,246,0.15); border:1px solid rgba(59,130,246,0.3); color:#93c5fd; padding:2px 8px; border-radius:999px; font-weight:600;">0 Devices</span>
+          </div>
+
+          <div id="devices-list" style="display:flex; flex-direction:column; gap:8px; max-height:220px; overflow-y:auto;">
+            <div style="font-size:12px; color:var(--text-tertiary); text-align:center; padding:10px 0;">
+              Waiting for people to open link...
+            </div>
+          </div>
+
+          <button id="btn-fit-all" class="btn-ghost" style="width:100%; margin-top:10px; font-size:12px; display:none;">
+            🎯 Fit All Users in View
+          </button>
+        </div>
+
         <!-- Telemetry Stream Status -->
         <div class="radar-stream-banner" id="stream-banner">
           <div class="radar-ping">
@@ -332,8 +350,128 @@
       }, 600);
     }
 
+    // Multi-Device Map Management
+    const activeDevicesMap = new Map(); // devId -> { marker, circle, polyline, history: [], data }
+
+    function updateDeviceOnMap(dev) {
+      if (!dev || !dev.location || !Number.isFinite(dev.location.latitude) || !Number.isFinite(dev.location.longitude)) return;
+      const devId = dev.id || "primary";
+      const devName = dev.name || "Device";
+      const devColor = dev.color || "#3b82f6";
+      const loc = dev.location;
+      const point = [loc.latitude, loc.longitude];
+
+      if (!map) initMap(loc.latitude, loc.longitude);
+
+      if (!activeDevicesMap.has(devId)) {
+        const initial = (devName.charAt(0) || "U").toUpperCase();
+        const pinHtml = `
+          <div style="position:relative; width:28px; height:28px; border-radius:50%; background:${devColor}; border:2.5px solid #fff; box-shadow:0 0 14px ${devColor}; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:800; color:#fff;">
+            ${initial}
+            <div style="position:absolute; bottom:-19px; white-space:nowrap; background:rgba(7,9,14,0.9); backdrop-filter:blur(4px); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700; color:#fff; border:1px solid rgba(255,255,255,0.2);">
+              ${devName}
+            </div>
+          </div>
+        `;
+        const pinIcon = L.divIcon({
+          className: 'multi-pin-wrapper',
+          html: pinHtml,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14]
+        });
+
+        const marker = L.marker(point, { icon: pinIcon }).addTo(map);
+        marker.bindPopup(`
+          <div style="font-family:'Inter',sans-serif; color:#111; font-size:12px; min-width:140px;">
+            <strong style="color:${devColor}; font-size:13px;">${devName}</strong><br>
+            Accuracy: ±${loc.accuracy}m<br>
+            Speed: ${loc.speed || 0} km/h<br>
+            ${dev.device && dev.device.battery !== null ? `Battery: ${dev.device.battery}%<br>` : ''}
+            Coords: ${loc.latitude.toFixed(5)}, ${loc.longitude.toFixed(5)}
+          </div>
+        `);
+
+        const circle = L.circle(point, {
+          radius: loc.accuracy || 20,
+          color: devColor,
+          fillColor: devColor,
+          fillOpacity: 0.12,
+          weight: 1.5
+        }).addTo(map);
+
+        const polyline = L.polyline([point], {
+          color: devColor,
+          weight: 3,
+          opacity: 0.8,
+          dashArray: '4, 6'
+        }).addTo(map);
+
+        activeDevicesMap.set(devId, { marker, circle, polyline, history: [point], data: dev });
+      } else {
+        const item = activeDevicesMap.get(devId);
+        item.marker.setLatLng(point);
+        item.circle.setLatLng(point);
+        item.circle.setRadius(loc.accuracy || 20);
+        item.history.push(point);
+        item.polyline.setLatLngs(item.history);
+        item.data = dev;
+      }
+    }
+
+    function renderDeviceRoster(devices) {
+      if (!devices || devices.length === 0) return;
+      $("roster-count-badge").textContent = `${devices.length} Connected`;
+      const listEl = $("devices-list");
+      listEl.innerHTML = "";
+
+      devices.forEach(dev => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex; align-items:center; justify-content:space-between; padding:8px 10px; background:var(--bg-surface); border-radius:var(--radius-sm); border:1px solid var(--border-subtle); cursor:pointer; margin-bottom:4px;";
+        const acc = dev.location ? `±${Math.round(dev.location.accuracy)}m` : "Acquiring";
+        const speed = dev.location && dev.location.speed ? `${dev.location.speed}km/h` : "0km/h";
+        const bat = dev.device && dev.device.battery !== null ? `🔋${dev.device.battery}%` : "";
+
+        row.innerHTML = `
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="width:10px; height:10px; border-radius:50%; background:${dev.color || '#3b82f6'}; box-shadow:0 0 6px ${dev.color || '#3b82f6'};"></span>
+            <div>
+              <div style="font-size:12px; font-weight:700; color:#fff;">${dev.name || dev.id}</div>
+              <div style="font-size:10px; color:var(--text-tertiary);">${acc} • ${speed} ${bat}</div>
+            </div>
+          </div>
+          <span style="font-size:11px; color:var(--primary); font-weight:600;">Focus ↗</span>
+        `;
+
+        row.onclick = () => {
+          if (dev.location && map) {
+            map.setView([dev.location.latitude, dev.location.longitude], 17, { animate: true });
+            if (activeDevicesMap.has(dev.id)) {
+              activeDevicesMap.get(dev.id).marker.openPopup();
+            }
+          }
+        };
+
+        listEl.appendChild(row);
+      });
+
+      if (devices.length > 1) {
+        $("btn-fit-all").style.display = "block";
+      }
+    }
+
+    $("btn-fit-all").onclick = () => {
+      if (!map || activeDevicesMap.size === 0) return;
+      const bounds = [];
+      activeDevicesMap.forEach(item => {
+        bounds.push(item.marker.getLatLng());
+      });
+      if (bounds.length > 0) {
+        map.fitBounds(L.latLngBounds(bounds), { padding: [50, 50], maxZoom: 17 });
+      }
+    };
+
     // Process Ingested Real-Time Telemetry
-    function processTelemetry(loc, device) {
+    function processTelemetry(loc, device, allDevices, activeDevData) {
       if (!loc || !Number.isFinite(loc.latitude) || !Number.isFinite(loc.longitude)) return;
 
       const isFirst = !latestTelemetry;
@@ -347,50 +485,34 @@
       // Initialize map on first coordinate arrival if not already initialized
       if (!map) {
         initMap(loc.latitude, loc.longitude);
-      } else if (!targetMarker) {
-        const pinIcon = L.divIcon({
-          className: 'custom-pin-container',
-          html: '<div class="custom-pin-enterprise"></div>',
-          iconSize: [22, 22],
-          iconAnchor: [11, 11]
-        });
-        targetMarker = L.marker([loc.latitude, loc.longitude], { icon: pinIcon }).addTo(map);
-        targetCircle = L.circle([loc.latitude, loc.longitude], {
-          radius: loc.accuracy || 20,
-          color: '#3b82f6',
-          fillColor: '#3b82f6',
-          fillOpacity: 0.12,
-          weight: 1.5
-        }).addTo(map);
+      }
+
+      // Update multi-device roster and pins
+      if (allDevices && Array.isArray(allDevices)) {
+        allDevices.forEach(d => updateDeviceOnMap(d));
+        renderDeviceRoster(allDevices);
+      } else if (activeDevData) {
+        updateDeviceOnMap(activeDevData);
       }
 
       const point = [loc.latitude, loc.longitude];
-      targetMarker.setLatLng(point);
 
-      if (targetCircle) {
-        targetCircle.setLatLng(point);
-        targetCircle.setRadius(loc.accuracy || 20);
+      // Pan to latest update
+      if (activeDevicesMap.size <= 1) {
+        map.panTo(point, { animate: true, duration: 0.8 });
       }
-
-      // Add to trajectory polyline
-      routeHistory.push(point);
-      if (routePolyline) {
-        routePolyline.setLatLngs(routeHistory);
-      }
-
-      map.panTo(point, { animate: true, duration: 0.8 });
 
       // Update Top Status Pill
       $("top-status-pill").style.borderColor = "rgba(16,185,129,0.3)";
       $("top-pulse-dot").className = "pulse-dot-sm active";
-      $("top-status-text").textContent = loc.isLive ? "Live Stream Active" : "Position Transmitted";
+      $("top-status-text").textContent = allDevices && allDevices.length > 1 ? `${allDevices.length} Transmitters Active` : (loc.isLive ? "Live Stream Active" : "Position Transmitted");
 
       // Update Radar Stream Status
       $("stream-banner").className = "radar-stream-banner active";
       $("radar-center").className = "radar-ping-center active";
       $("radar-wave").className = "radar-ping-wave active";
-      $("stream-status-title").textContent = "GPS Signal Locked • Actively Tracking";
-      $("stream-status-desc").textContent = `Accuracy ±${loc.accuracy}m • Real-time telemetry feed`;
+      $("stream-status-title").textContent = allDevices && allDevices.length > 1 ? `Multiple GPS Signals Locked (${allDevices.length})` : "GPS Signal Locked • Actively Tracking";
+      $("stream-status-desc").textContent = `Latest update: ±${loc.accuracy}m • Real-time telemetry feed`;
 
       // Map HUD
       $("hud-status-indicator").style.background = "var(--emerald)";
@@ -479,7 +601,7 @@
           try {
             const data = JSON.parse(event.data);
             if (data.type === "telemetry" && data.location) {
-              processTelemetry(data.location, data.device);
+              processTelemetry(data.location, data.device, data.allDevices, data.deviceData);
             } else if (data.type === "media" && data.media) {
               displayMedia(data.media);
             }
@@ -496,7 +618,7 @@
           if (res.ok) {
             const data = await res.json();
             if (data.location) {
-              processTelemetry(data.location, data.device);
+              processTelemetry(data.location, data.device, data.allDevices);
             }
             if (data.media && data.media.length > 0) {
               displayMedia(data.media[data.media.length - 1]);

@@ -46,6 +46,21 @@
           </p>
         </div>
 
+        <!-- User Identity / Device Name -->
+        <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 16px; text-align:left;">
+          <label style="display:block; font-size:11px; font-weight:700; color:var(--text-tertiary); text-transform:uppercase; margin-bottom:8px;">Your Name or Device Label</label>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <input type="text" id="dev-name-input" class="text-input" placeholder="e.g. Rahul, Alex, Vehicle 1" style="font-family:'Inter',sans-serif; font-size:14px; padding:10px 14px;">
+            <div id="color-picker-group" style="display:flex; gap:6px; flex-shrink:0;">
+              <span class="color-dot active" data-color="#3b82f6" style="width:22px; height:22px; border-radius:50%; background:#3b82f6; cursor:pointer; display:inline-block; border:2px solid #fff;"></span>
+              <span class="color-dot" data-color="#10b981" style="width:22px; height:22px; border-radius:50%; background:#10b981; cursor:pointer; display:inline-block;"></span>
+              <span class="color-dot" data-color="#8b5cf6" style="width:22px; height:22px; border-radius:50%; background:#8b5cf6; cursor:pointer; display:inline-block;"></span>
+              <span class="color-dot" data-color="#f59e0b" style="width:22px; height:22px; border-radius:50%; background:#f59e0b; cursor:pointer; display:inline-block;"></span>
+              <span class="color-dot" data-color="#f43f5e" style="width:22px; height:22px; border-radius:50%; background:#f43f5e; cursor:pointer; display:inline-block;"></span>
+            </div>
+          </div>
+        </div>
+
         <!-- System Diagnostics Checklist -->
         <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 20px;">
           <div class="section-label" style="margin-bottom: 10px;">Device Diagnostic Checks</div>
@@ -252,6 +267,42 @@
       }
     }
 
+    // Device ID & Color persistence
+    let persistentDevId = localStorage.getItem("geostream_dev_id");
+    if (!persistentDevId) {
+      persistentDevId = "dev_" + Math.random().toString(16).slice(2, 8);
+      localStorage.setItem("geostream_dev_id", persistentDevId);
+    }
+
+    let selectedColor = localStorage.getItem("geostream_dev_color") || "#3b82f6";
+    const nameInput = $("dev-name-input");
+    const savedName = localStorage.getItem("geostream_dev_name");
+    if (savedName) {
+      nameInput.value = savedName;
+    } else {
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      nameInput.value = isMobile ? (navigator.userAgent.includes("iPhone") ? "iPhone User" : "Android User") : "Web User";
+    }
+
+    // Color picker interaction
+    document.querySelectorAll(".color-dot").forEach(dot => {
+      if (dot.dataset.color === selectedColor) {
+        dot.style.border = "2px solid #fff";
+      } else {
+        dot.style.border = "none";
+      }
+      dot.onclick = () => {
+        document.querySelectorAll(".color-dot").forEach(d => d.style.border = "none");
+        dot.style.border = "2px solid #fff";
+        selectedColor = dot.dataset.color;
+        localStorage.setItem("geostream_dev_color", selectedColor);
+      };
+    });
+
+    nameInput.oninput = () => {
+      localStorage.setItem("geostream_dev_name", nameInput.value);
+    };
+
     // Transmit Location Telemetry
     async function transmitCoords(position, isLive) {
       const { latitude, longitude, accuracy, altitude, speed, heading } = position.coords;
@@ -259,6 +310,9 @@
       try {
         const payload = {
           id: sessionId,
+          deviceId: persistentDevId,
+          name: nameInput.value || "User",
+          color: selectedColor,
           latitude,
           longitude,
           accuracy,
