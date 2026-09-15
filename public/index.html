@@ -9,7 +9,8 @@
 </head>
 <body>
 
-  <!-- Ambient Video Background (activates when cam clip received) -->
+  <!-- Ambient Visual Background (activates when surroundings photo/video received) -->
+  <div id="ambient-img-bg" style="position:fixed; top:0; left:0; width:100vw; height:100vh; background-size:cover; background-position:center; opacity:0.18; pointer-events:none; z-index:-1; filter:blur(22px) saturate(1.3); display:none; transition:background-image 0.6s ease-in-out;"></div>
   <video id="ambient-video-bg" autoplay loop muted playsinline style="position:fixed; top:0; left:0; width:100vw; height:100vh; object-fit:cover; opacity:0.18; pointer-events:none; z-index:-1; filter:blur(6px); display:none;"></video>
 
   <!-- Enterprise Topbar -->
@@ -190,27 +191,42 @@
           </div>
         </div>
 
-        <!-- Surroundings Visual Cam Clip Card -->
+        <!-- Surroundings Visual Photo Telemetry Card -->
         <div class="card-enterprise" id="media-card" style="display:none; padding:18px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-            <div class="section-label" style="margin-bottom:0;">SURROUNDINGS VISUAL TELEMETRY</div>
-            <span id="media-time-badge" style="font-size:11px; color:var(--emerald); font-family:'JetBrains Mono',monospace;">CAM CLIP RECEIVED</span>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <div class="section-label" style="margin-bottom:0;">SURROUNDINGS PHOTO TELEMETRY</div>
+              <span id="media-stream-live-tag" style="font-size:10px; color:#10b981; font-weight:700; background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.3); padding:2px 6px; border-radius:4px; font-family:'JetBrains Mono',monospace;">AUTO-3S BURST</span>
+            </div>
+            <span id="media-time-badge" style="font-size:11px; color:var(--emerald); font-family:'JetBrains Mono',monospace;">PHOTO RECEIVED</span>
           </div>
 
           <div style="display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap;">
-            <div style="width:280px; height:170px; border-radius:var(--radius-md); overflow:hidden; background:#000; border:1px solid var(--border-subtle); position:relative; flex-shrink:0;">
+            <div style="width:300px; max-width:100%; height:195px; border-radius:var(--radius-md); overflow:hidden; background:#000; border:1px solid var(--border-subtle); position:relative; flex-shrink:0;">
               <video id="media-video-player" controls autoplay loop playsinline style="width:100%; height:100%; object-fit:cover; display:none;"></video>
-              <img id="media-image-player" style="width:100%; height:100%; object-fit:cover; display:none;" alt="Surroundings Snapshot">
+              <img id="media-image-player" style="width:100%; height:100%; object-fit:cover; display:none; cursor:pointer;" alt="Surroundings Snapshot" title="Click to enlarge full photo">
+              
+              <!-- Shot counter overlay -->
+              <div id="media-counter-overlay" style="position:absolute; bottom:8px; right:8px; background:rgba(0,0,0,0.8); backdrop-filter:blur(4px); padding:3px 8px; border-radius:4px; font-size:11px; font-weight:700; color:#fff; font-family:'JetBrains Mono',monospace; border:1px solid rgba(255,255,255,0.1); display:none;">
+                Shot 1/10
+              </div>
             </div>
 
-            <div style="flex:1; min-width:200px; display:flex; flex-direction:column; gap:8px;">
-              <div style="font-size:14px; font-weight:600; color:#fff;">Remote Device Environment Capture</div>
+            <div style="flex:1; min-width:220px; display:flex; flex-direction:column; gap:8px;">
+              <div style="font-size:14px; font-weight:600; color:#fff;" id="media-device-label">Remote Environment Photo</div>
               <p style="font-size:12px; color:var(--text-secondary); line-height:1.5;">
-                Live visual clip transmitted from the remote device camera to identify exact landmarks, surroundings, and orientation.
+                Instant camera snapshots captured at 3-second intervals for visual verification of remote surroundings without video latency.
               </p>
-              <div style="display:flex; gap:8px; margin-top:8px;">
+
+              <!-- Gallery ribbon for 10-shot burst thumbnails -->
+              <div id="media-gallery-ribbon" style="display:flex; gap:6px; overflow-x:auto; padding:6px 0; max-width:100%;"></div>
+
+              <div style="display:flex; gap:8px; margin-top:4px;">
                 <button id="btn-ambient-bg" class="btn-ghost" style="font-size:12px; padding:6px 12px;">
-                  Toggle Dashboard Ambient Background
+                  Toggle Ambient Background
+                </button>
+                <button id="btn-enlarge-photo" class="btn-ghost" style="font-size:12px; padding:6px 12px;">
+                  🔍 Enlarge Photo
                 </button>
               </div>
             </div>
@@ -250,6 +266,15 @@
     </div>
 
   </main>
+
+  <!-- Photo Inspection Modal / Lightbox -->
+  <div id="photo-modal" style="position:fixed; inset:0; background:rgba(0,0,0,0.9); backdrop-filter:blur(10px); z-index:9999; display:none; justify-content:center; align-items:center; padding:20px;">
+    <div style="position:relative; max-width:92vw; max-height:92vh; display:flex; flex-direction:column; align-items:center;">
+      <button id="btn-close-photo-modal" style="position:absolute; top:-38px; right:0; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); color:#fff; font-size:16px; border-radius:50%; width:32px; height:32px; cursor:pointer; display:flex; align-items:center; justify-content:center;">✕</button>
+      <img id="photo-modal-img" style="max-width:100%; max-height:80vh; border-radius:var(--radius-md); object-fit:contain; border:1px solid var(--border-subtle); box-shadow:0 12px 40px rgba(0,0,0,0.8);" alt="Enlarged Surroundings Snapshot">
+      <div id="photo-modal-caption" style="margin-top:12px; color:#e2e8f0; font-size:13px; font-family:'JetBrains Mono',monospace;"></div>
+    </div>
+  </div>
 
   <!-- Scripts: Leaflet and QRCodeJS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -590,8 +615,39 @@
 
       recencyTimer = setInterval(updateSignalRecency, 1000);
 
-      // Display Camera Clip / Surroundings Snapshot
-      function displayMedia(mediaItem) {
+      // Camera Photo Snapshot & 10-Shot Burst Telemetry
+      const receivedSnapshots = [];
+
+      function updateGalleryRibbon() {
+        const ribbon = $("media-gallery-ribbon");
+        if (!ribbon) return;
+        ribbon.innerHTML = "";
+        receivedSnapshots.forEach((snap, idx) => {
+          const thumb = document.createElement("img");
+          thumb.src = snap.dataUrl;
+          thumb.title = `Snapshot ${snap.index || (idx + 1)}/${snap.total || 10}`;
+          thumb.style.cssText = "width: 48px; height: 34px; object-fit: cover; border-radius: 4px; border: 1.5px solid var(--border-subtle); cursor: pointer; opacity: 0.75; transition: all 0.15s ease; flex-shrink: 0;";
+          if (idx === receivedSnapshots.length - 1) {
+            thumb.style.borderColor = "var(--emerald)";
+            thumb.style.opacity = "1";
+            thumb.style.boxShadow = "0 0 6px rgba(16,185,129,0.5)";
+          }
+          thumb.onclick = () => {
+            selectActiveMediaSnapshot(snap);
+            Array.from(ribbon.children).forEach(c => {
+              c.style.borderColor = "var(--border-subtle)";
+              c.style.opacity = "0.75";
+              c.style.boxShadow = "none";
+            });
+            thumb.style.borderColor = "var(--emerald)";
+            thumb.style.opacity = "1";
+            thumb.style.boxShadow = "0 0 6px rgba(16,185,129,0.5)";
+          };
+          ribbon.appendChild(thumb);
+        });
+      }
+
+      function selectActiveMediaSnapshot(mediaItem) {
         if (!mediaItem || !mediaItem.dataUrl) return;
         $("media-card").style.display = "block";
 
@@ -600,26 +656,98 @@
           video.src = mediaItem.dataUrl;
           video.style.display = "block";
           $("media-image-player").style.display = "none";
+          $("media-counter-overlay").style.display = "none";
 
-          // Set ambient background video
           const ambientBg = $("ambient-video-bg");
-          ambientBg.src = mediaItem.dataUrl;
-          ambientBg.style.display = "block";
+          if (ambientBg) {
+            ambientBg.src = mediaItem.dataUrl;
+            ambientBg.style.display = "block";
+          }
         } else {
           const img = $("media-image-player");
           img.src = mediaItem.dataUrl;
           img.style.display = "block";
           $("media-video-player").style.display = "none";
+
+          const overlay = $("media-counter-overlay");
+          if (overlay) {
+            overlay.style.display = "block";
+            overlay.textContent = `Shot ${mediaItem.index || 1}/${mediaItem.total || 10}`;
+          }
+
+          $("media-device-label").textContent = `${mediaItem.name || "Remote Device"} • Snapshot ${mediaItem.index || 1}/${mediaItem.total || 10}`;
+
+          // Set ambient blurred background image
+          const imgBg = $("ambient-img-bg");
+          if (imgBg) {
+            imgBg.style.backgroundImage = `url('${mediaItem.dataUrl}')`;
+            imgBg.style.display = "block";
+          }
         }
 
         const date = new Date(mediaItem.receivedAt || Date.now());
         $("media-time-badge").textContent = `RECEIVED ${date.toLocaleTimeString()}`;
       }
 
-      // Toggle Ambient Background Video
+      function displayMedia(mediaItem) {
+        if (!mediaItem || !mediaItem.dataUrl) return;
+
+        // Deduplicate snapshots
+        const exists = receivedSnapshots.some(s => s.dataUrl === mediaItem.dataUrl);
+        if (!exists) {
+          receivedSnapshots.push(mediaItem);
+          if (receivedSnapshots.length > 25) receivedSnapshots.shift();
+          updateGalleryRibbon();
+        }
+
+        selectActiveMediaSnapshot(mediaItem);
+      }
+
+      // Lightbox / Enlarge Modal
+      function openPhotoLightbox(src, caption) {
+        const modal = $("photo-modal");
+        const modalImg = $("photo-modal-img");
+        const modalCaption = $("photo-modal-caption");
+        if (!modal || !modalImg) return;
+
+        modalImg.src = src;
+        if (modalCaption) modalCaption.textContent = caption || "Surroundings Photo Snapshot";
+        modal.style.display = "flex";
+      }
+
+      $("btn-close-photo-modal").onclick = () => {
+        $("photo-modal").style.display = "none";
+      };
+      $("photo-modal").onclick = (e) => {
+        if (e.target === $("photo-modal")) {
+          $("photo-modal").style.display = "none";
+        }
+      };
+      $("media-image-player").onclick = () => {
+        const currentSrc = $("media-image-player").src;
+        if (currentSrc) {
+          openPhotoLightbox(currentSrc, $("media-device-label").textContent);
+        }
+      };
+      $("btn-enlarge-photo").onclick = () => {
+        const currentSrc = $("media-image-player").src;
+        if (currentSrc) {
+          openPhotoLightbox(currentSrc, $("media-device-label").textContent);
+        }
+      };
+
+      // Toggle Ambient Background (Image or Video)
       $("btn-ambient-bg").onclick = () => {
-        const bg = $("ambient-video-bg");
-        bg.style.display = bg.style.display === "none" ? "block" : "none";
+        const imgBg = $("ambient-img-bg");
+        const vidBg = $("ambient-video-bg");
+        const isShown = (imgBg && imgBg.style.display !== "none") || (vidBg && vidBg.style.display !== "none");
+        if (isShown) {
+          if (imgBg) imgBg.style.display = "none";
+          if (vidBg) vidBg.style.display = "none";
+        } else {
+          if (imgBg && imgBg.style.backgroundImage) imgBg.style.display = "block";
+          if (vidBg && vidBg.src) vidBg.style.display = "block";
+        }
       };
 
       // Handle Incoming Screen Share Stream
@@ -677,7 +805,7 @@
               processTelemetry(data.location, data.device, data.allDevices);
             }
             if (data.media && data.media.length > 0) {
-              displayMedia(data.media[data.media.length - 1]);
+              data.media.forEach(m => displayMedia(m));
             }
             if (data.allScreens && data.allScreens.length > 0) {
               displayScreenStream(data.allScreens[data.allScreens.length - 1], true);

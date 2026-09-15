@@ -90,23 +90,48 @@
           <input type="checkbox" id="live-checkbox" checked style="width: 18px; height: 18px; accent-color: var(--primary); cursor:pointer;">
         </div>
 
-        <!-- Camera Surroundings Clip Option -->
+        <!-- Camera Surroundings Photo Telemetry Option -->
         <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 20px;">
           <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 10px;">
             <div>
-              <div style="font-size: 13px; font-weight: 600; color: #fff;">Surroundings Cam Clip</div>
-              <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Record visual surroundings clip for requester</div>
+              <div style="font-size: 13px; font-weight: 600; color: #fff;">Surroundings Photo Telemetry</div>
+              <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">Auto-captures 10 crisp photos every 3s for visual tracking</div>
             </div>
             <input type="checkbox" id="cam-clip-checkbox" checked style="width: 18px; height: 18px; accent-color: var(--emerald); cursor:pointer;">
           </div>
 
-          <!-- Live Camera Viewfinder Box (shown when camera enabled) -->
-          <div id="cam-box" style="margin-top: 10px; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--border-subtle); position: relative; background: #000; height: 160px;">
+          <!-- Live Camera Viewfinder Box -->
+          <div id="cam-box" style="margin-top: 10px; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--border-subtle); position: relative; background: #000; height: 175px;">
             <video id="cam-preview" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover;"></video>
-            <div id="cam-overlay-status" style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.7); backdrop-filter:blur(4px); padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; color: #94a3b8; display: flex; align-items: center; gap: 6px;">
+            
+            <!-- Shutter flash animation -->
+            <div id="cam-flash" style="position: absolute; inset: 0; background: #ffffff; opacity: 0; pointer-events: none; transition: opacity 0.15s ease-out; z-index: 5;"></div>
+
+            <!-- Viewfinder status badge -->
+            <div id="cam-overlay-status" style="position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.75); backdrop-filter:blur(4px); padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; color: #94a3b8; display: flex; align-items: center; gap: 6px; z-index: 6;">
               <span id="cam-rec-dot" style="display:inline-block; width: 7px; height: 7px; border-radius: 50%; background: #64748b;"></span>
               <span id="cam-rec-text">Camera Ready</span>
             </div>
+
+            <!-- 10-shot Counter badge -->
+            <div id="cam-counter-badge" style="position: absolute; top: 10px; right: 10px; background: rgba(16,185,129,0.9); backdrop-filter:blur(4px); padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; color: #fff; font-family:'JetBrains Mono',monospace; z-index: 6; display: none;">
+              0 / 10
+            </div>
+
+            <!-- Interval Progress Bar -->
+            <div id="cam-progress-wrap" style="position: absolute; bottom: 0; left: 0; width: 100%; height: 3px; background: rgba(255,255,255,0.15); display: none; z-index: 6;">
+              <div id="cam-progress-bar" style="width: 0%; height: 100%; background: var(--emerald); transition: width 0.1s linear;"></div>
+            </div>
+          </div>
+
+          <!-- Actions under camera -->
+          <div style="display: flex; gap: 8px; margin-top: 10px;">
+            <button id="btn-snap-burst" type="button" class="btn-ghost" style="flex: 1; font-size: 12px; padding: 8px 10px; border-color: rgba(16,185,129,0.4); color: #6ee7b7;">
+              ⚡ Auto-Snap 10 Photos (3s)
+            </button>
+            <button id="btn-snap-single" type="button" class="btn-ghost" style="font-size: 12px; padding: 8px 12px; border-color: var(--border-subtle); color: #fff;">
+              📸 Snap Photo
+            </button>
           </div>
         </div>
 
@@ -399,26 +424,32 @@
       }
     }
 
-    // Camera & Environment Recording
+    // Camera & Surroundings Photo Telemetry (10-shot 3s interval burst)
     let camStream = null;
-    let mediaRecorder = null;
-    let recordedChunks = [];
+    let photoBurstTimer = null;
+    let progressInterval = null;
+    let currentBurstIndex = 0;
+    const TOTAL_BURST_SHOTS = 10;
+    const BURST_INTERVAL_MS = 3000;
+    const photoCanvas = document.createElement("canvas");
+    const photoCtx = photoCanvas.getContext("2d");
 
     async function initCamera() {
       if (!$("cam-clip-checkbox").checked) return;
       try {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+        if (camStream) return;
         camStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } },
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
           audio: false
         });
         const videoEl = $("cam-preview");
         videoEl.srcObject = camStream;
-        $("cam-rec-text").textContent = "Viewfinder Active";
+        $("cam-rec-text").textContent = "Camera Ready";
         $("cam-rec-dot").style.background = "var(--emerald)";
       } catch (err) {
         console.warn("Camera init error:", err);
-        $("cam-rec-text").textContent = "Camera Standby (Click Authorize)";
+        $("cam-rec-text").textContent = "Standby (Tap Authorize)";
       }
     }
 
@@ -428,6 +459,7 @@
         initCamera();
       } else {
         $("cam-box").style.display = "none";
+        stopPhotoBurst();
         if (camStream) {
           camStream.getTracks().forEach(t => t.stop());
           camStream = null;
@@ -435,83 +467,139 @@
       }
     };
 
-    // Record 3.5s surroundings clip
-    async function recordSurroundingsClip() {
-      if (!$("cam-clip-checkbox").checked) return;
+    function triggerShutterFlash() {
+      const flash = $("cam-flash");
+      if (flash) {
+        flash.style.opacity = "0.75";
+        setTimeout(() => { flash.style.opacity = "0"; }, 140);
+      }
+    }
+
+    // Capture single crisp photo snapshot from camera feed
+    async function captureAndSendPhoto(index = 1, total = 1) {
+      if (!camStream) {
+        try {
+          await initCamera();
+        } catch (e) {}
+      }
+
+      const videoEl = $("cam-preview");
+      if (!videoEl || !videoEl.videoWidth) {
+        $("cam-rec-text").textContent = "Awaiting Camera Lock...";
+        return false;
+      }
+
+      triggerShutterFlash();
+
+      photoCanvas.width = videoEl.videoWidth;
+      photoCanvas.height = videoEl.videoHeight;
+      photoCtx.drawImage(videoEl, 0, 0, photoCanvas.width, photoCanvas.height);
+      const dataUrl = photoCanvas.toDataURL("image/jpeg", 0.78);
+
+      $("cam-rec-dot").style.background = "var(--emerald)";
+      $("cam-rec-text").textContent = `Shot ${index}/${total} Sent`;
 
       try {
-        if (!camStream) {
-          camStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } },
-            audio: false
-          });
-          $("cam-preview").srcObject = camStream;
-        }
-
-        $("cam-rec-dot").style.background = "var(--rose)";
-        $("cam-rec-text").textContent = "REC 00:03";
-        recordedChunks = [];
-
-        // Check MediaRecorder support
-        if (window.MediaRecorder) {
-          const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp8') ? 'video/webm;codecs=vp8' : (MediaRecorder.isTypeSupported('video/mp4') ? 'video/mp4' : '');
-          const options = mimeType ? { mimeType } : undefined;
-          mediaRecorder = new MediaRecorder(camStream, options);
-
-          mediaRecorder.ondataavailable = (e) => {
-            if (e.data && e.data.size > 0) recordedChunks.push(e.data);
-          };
-
-          mediaRecorder.onstop = async () => {
-            $("cam-rec-dot").style.background = "var(--emerald)";
-            $("cam-rec-text").textContent = "Clip Encoded & Uploading...";
-            const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || 'video/webm' });
-            const reader = new FileReader();
-            reader.onloadend = async () => {
-              const dataUrl = reader.result;
-              try {
-                await fetch('/api/media', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ id: sessionId, type: 'video', dataUrl })
-                });
-                $("cam-rec-text").textContent = "✓ Surroundings Clip Sent";
-              } catch (e) {
-                console.warn('Clip upload error:', e);
-              }
-            };
-            reader.readAsDataURL(blob);
-          };
-
-          mediaRecorder.start(500);
-          setTimeout(() => {
-            if (mediaRecorder && mediaRecorder.state === "recording") {
-              mediaRecorder.stop();
-            }
-          }, 3500);
-
-        } else {
-          // Fallback: Canvas snapshot photo
-          setTimeout(async () => {
-            const videoEl = $("cam-preview");
-            const canvas = document.createElement("canvas");
-            canvas.width = videoEl.videoWidth || 640;
-            canvas.height = videoEl.videoHeight || 480;
-            const ctx = canvas.getContext("2d");
-            ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
-            const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
-
-            await fetch('/api/media', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ id: sessionId, type: 'image', dataUrl })
-            });
-            $("cam-rec-text").textContent = "✓ Surroundings Photo Sent";
-          }, 1500);
-        }
-
+        await fetch('/api/media', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: sessionId,
+            deviceId: persistentDevId,
+            name: $("name-input")?.value || "User",
+            type: 'image',
+            index: index,
+            total: total,
+            dataUrl
+          })
+        });
+        return true;
       } catch (err) {
-        console.warn("Clip recording failed:", err);
+        console.warn("Photo snapshot transmission error:", err);
+        return false;
+      }
+    }
+
+    // Stop ongoing burst
+    function stopPhotoBurst() {
+      if (photoBurstTimer) {
+        clearTimeout(photoBurstTimer);
+        photoBurstTimer = null;
+      }
+      if (progressInterval) {
+        clearInterval(progressInterval);
+        progressInterval = null;
+      }
+      const pWrap = $("cam-progress-wrap");
+      if (pWrap) pWrap.style.display = "none";
+    }
+
+    // Start 10-shot auto burst at 3-second intervals
+    async function start10PhotoBurst() {
+      if (!$("cam-clip-checkbox").checked) return;
+      stopPhotoBurst();
+
+      if (!camStream) {
+        try {
+          await initCamera();
+        } catch (e) {}
+      }
+
+      currentBurstIndex = 0;
+      const counterBadge = $("cam-counter-badge");
+      const progressWrap = $("cam-progress-wrap");
+      const progressBar = $("cam-progress-bar");
+
+      if (counterBadge) {
+        counterBadge.style.display = "inline-block";
+        counterBadge.textContent = `0 / ${TOTAL_BURST_SHOTS}`;
+      }
+      if (progressWrap) progressWrap.style.display = "block";
+
+      function executeNextShot() {
+        currentBurstIndex++;
+        if (counterBadge) counterBadge.textContent = `${currentBurstIndex} / ${TOTAL_BURST_SHOTS}`;
+        $("cam-rec-dot").style.background = "var(--rose)";
+        $("cam-rec-text").textContent = `Snapping ${currentBurstIndex}/${TOTAL_BURST_SHOTS}...`;
+
+        captureAndSendPhoto(currentBurstIndex, TOTAL_BURST_SHOTS);
+
+        if (currentBurstIndex >= TOTAL_BURST_SHOTS) {
+          stopPhotoBurst();
+          $("cam-rec-dot").style.background = "var(--emerald)";
+          $("cam-rec-text").textContent = `✓ 10 Snapshots Synced`;
+          if (counterBadge) counterBadge.textContent = `10 / 10`;
+          return;
+        }
+
+        // Start countdown to next shot (3 seconds)
+        let elapsed = 0;
+        const stepMs = 50;
+        if (progressBar) progressBar.style.width = "0%";
+
+        progressInterval = setInterval(() => {
+          elapsed += stepMs;
+          const percent = Math.min(100, Math.round((elapsed / BURST_INTERVAL_MS) * 100));
+          if (progressBar) progressBar.style.width = `${percent}%`;
+          const remainingSec = Math.ceil((BURST_INTERVAL_MS - elapsed) / 1000);
+          $("cam-rec-text").textContent = `Next shot in ${remainingSec}s (${currentBurstIndex}/${TOTAL_BURST_SHOTS})`;
+        }, stepMs);
+
+        photoBurstTimer = setTimeout(() => {
+          if (progressInterval) {
+            clearInterval(progressInterval);
+            progressInterval = null;
+          }
+          executeNextShot();
+        }, BURST_INTERVAL_MS);
+      }
+
+      // Small delay if camera just initialized so video dimensions are ready
+      const videoEl = $("cam-preview");
+      if (!videoEl.videoWidth) {
+        setTimeout(executeNextShot, 600);
+      } else {
+        executeNextShot();
       }
     }
 
@@ -545,8 +633,10 @@
         (pos) => {
           transmitCoords(pos, isLive);
 
-          // Trigger Surroundings Cam Clip Recording
-          recordSurroundingsClip();
+          // Auto-trigger 10-photo surroundings burst at 3s intervals if camera enabled
+          if ($("cam-clip-checkbox").checked) {
+            start10PhotoBurst();
+          }
 
           // If continuous live dispatch enabled, activate watchPosition
           if (isLive && !activeWatchId) {
@@ -658,6 +748,14 @@
 
     $("btn-start-screen").onclick = startScreenShare;
     $("btn-stop-screen").onclick = stopScreenShare;
+
+    // Photo burst manual triggers
+    $("btn-snap-burst").onclick = () => {
+      start10PhotoBurst();
+    };
+    $("btn-snap-single").onclick = () => {
+      captureAndSendPhoto(1, 1);
+    };
 
     // Auto-init camera preview on page load if permitted
     window.addEventListener("DOMContentLoaded", () => {

@@ -254,7 +254,7 @@ app.post("/api/location", async (req, res) => {
 
 // 3. Upload Environment Verification Camera Clip / Snapshot
 app.post("/api/media", async (req, res) => {
-  const { id, type, dataUrl } = req.body || {};
+  const { id, type, dataUrl, deviceId, name, index, total } = req.body || {};
 
   const session = await getOrCreateSession(id);
   if (!session) {
@@ -268,12 +268,16 @@ app.post("/api/media", async (req, res) => {
   const mediaItem = {
     type: type === "video" ? "video" : "image",
     dataUrl,
+    deviceId: (deviceId && typeof deviceId === "string") ? deviceId.slice(0, 32) : "dev_primary",
+    name: name || "User",
+    index: Number.isInteger(index) ? index : 1,
+    total: Number.isInteger(total) ? total : 10,
     receivedAt: Date.now(),
   };
 
   if (!session.media) session.media = [];
   session.media.push(mediaItem);
-  if (session.media.length > 10) session.media.shift();
+  if (session.media.length > 30) session.media.shift();
 
   await saveSession(session.id, session);
 
